@@ -19,9 +19,28 @@ export interface ParsedQuestion {
   parseWarnings: string[];
   /** Detected layout boxes in analysis-frame pixel coords, for debug overlay. */
   debugBoxes?: DebugBox[];
+  /** Detected green/red icon centers (analysis-frame coords) for overlay dots. */
+  iconDots?: IconDot[];
   /** Size of the (possibly downscaled) frame the boxes are expressed in. */
   debugFrame?: { w: number; h: number };
+
+  // ---- Manual-correction layer (applied from localStorage after parsing) ----
+  /** True once the user has edited any field of this question. */
+  corrected?: boolean;
+  /** User marked the question as reviewed/trustworthy. */
+  verified?: boolean;
+  /** User excluded the question from tests. */
+  excluded?: boolean;
 }
+
+export interface IconDot {
+  x: number;
+  y: number;
+  correct: boolean;
+}
+
+/** Status used for filtering/labelling in the debug editor & dashboard counts. */
+export type QuestionStatus = "verified" | "corrected" | "excluded" | "parsed";
 
 export interface DebugBox {
   label: string;

@@ -6,18 +6,37 @@ import { shuffle } from "./utils";
 const PASS_THRESHOLD = 0.7;
 export const PASSING_PERCENT = 70;
 
-/**
- * Selects `count` questions, preferring high/medium confidence but topping up
- * with low-confidence ones if needed. Questions are shuffled, and each
- * question's answer order is shuffled while preserving correctness.
- */
-export function buildTest(all: ParsedQuestion[], count: number): TestQuestion[] {
-  // Only usable questions (must have at least one correct answer to be gradable).
-  const gradable = all.filter((q) => q.answers.length >= 2 && q.correctCount >= 1);
-  const preferred = gradable.filter((q) => q.parseConfidence !== "low");
-  const fallback = gradable.filter((q) => q.parseConfidence === "low");
+export interface BuildOptions {
+  /** Allow parser-only (not verified/corrected) questions into the pool. */
+  includeUnverified: boolean;
+}
 
-  const pool = [...shuffle(preferred), ...shuffle(fallback)].slice(0, count);
+/** A question is gradable when it has ≥2 answers and ≥1 correct, and isn't excluded. */
+export function isGradable(q: ParsedQuestion): boolean {
+  return !q.excluded && q.answers.length >= 2 && q.correctCount >= 1;
+}
+
+/**
+ * Selects `count` questions. Excluded questions are never used. Verified/
+ * corrected questions are always preferred; unverified parser questions are only
+ * pulled in when explicitly allowed OR when there aren't enough verified ones.
+ * Within the unverified pool, high/medium confidence is preferred over low.
+ * Questions and per-question answer order are shuffled (correctness preserved).
+ */
+export function buildTest(all: ParsedQuestion[], count: number, opts: BuildOptions): TestQuestion[] {
+  const gradable = all.filter(isGradable);
+  const trusted = gradable.filter((q) => q.verified || q.corrected);
+  const untrusted = gradable.filter((q) => !q.verified && !q.corrected);
+  const untrustedSorted = [
+    ...shuffle(untrusted.filter((q) => q.parseConfidence !== "low")),
+    ...shuffle(untrusted.filter((q) => q.parseConfidence === "low")),
+  ];
+
+  let candidates = shuffle(trusted);
+  if (opts.includeUnverified || candidates.length < count) {
+    candidates = [...candidates, ...untrustedSorted];
+  }
+  const pool = candidates.slice(0, count);
 
   return shuffle(pool).map((q) => ({
     question: { ...q, answers: shuffle(q.answers) },

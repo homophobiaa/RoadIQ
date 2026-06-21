@@ -2,8 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Visual system per .claude/DESIGN.md (Anthropic claude.com editorial):
+ * warm cream canvas, coral accent, dark navy product surfaces. Light mode.
+ */
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 html,
@@ -13,51 +17,88 @@ body,
 }
 
 body {
-  @apply bg-ink text-slate-100 font-sans antialiased;
-  /* Ambient dark gradient backdrop with coral/indigo glow blobs. */
-  background-color: #0b0d10;
-  background-image:
-    radial-gradient(60rem 40rem at 15% -10%, rgba(204, 120, 92, 0.18), transparent 60%),
-    radial-gradient(50rem 40rem at 100% 0%, rgba(99, 102, 241, 0.16), transparent 55%),
-    radial-gradient(60rem 50rem at 50% 120%, rgba(45, 212, 191, 0.1), transparent 60%);
-  background-attachment: fixed;
+  @apply bg-canvas text-body font-sans antialiased;
+  /* Default page floor is the flat cream canvas — color-block first. */
+  background-color: #faf9f5;
+}
+
+@layer base {
+  h1,
+  h2,
+  h3 {
+    @apply font-display text-ink;
+    font-weight: 600;
+  }
 }
 
 @layer components {
-  .glass {
-    @apply bg-white/[0.04] backdrop-blur-xl border border-white/10 shadow-glass;
-  }
-  .glass-soft {
-    @apply bg-white/[0.03] backdrop-blur-md border border-white/5;
-  }
+  /* ---- Buttons (DESIGN.md component.button-*) ---- */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium
-      transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed select-none;
+    @apply inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium
+      transition-colors duration-150 disabled:cursor-not-allowed select-none;
+    padding: 10px 20px;
   }
   .btn-primary {
-    @apply btn bg-coral text-white hover:bg-coral-active shadow-glow;
+    @apply btn bg-primary text-on-primary hover:bg-primary-active disabled:bg-primary-disabled disabled:text-muted-soft;
   }
-  .btn-ghost {
-    @apply btn bg-white/5 text-slate-200 hover:bg-white/10 border border-white/10;
+  .btn-secondary {
+    @apply btn bg-canvas text-ink border border-hairline hover:bg-surface-soft;
   }
-  .btn-chip {
-    @apply rounded-lg px-3 py-1.5 text-sm font-medium border border-white/10 bg-white/5
-      hover:bg-white/10 transition-colors;
+  .btn-secondary-on-dark {
+    @apply btn bg-surface-dark-elevated text-on-dark hover:bg-[#322f2b];
   }
+  .btn-link {
+    @apply inline-flex items-center gap-1 text-sm font-medium text-primary hover:text-primary-active;
+  }
+  .chip {
+    @apply rounded-md border border-hairline bg-canvas px-3 py-1.5 text-sm font-medium text-body
+      hover:bg-surface-soft transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .chip-active {
+    @apply border-primary bg-primary text-on-primary hover:bg-primary;
+  }
+
+  /* ---- Cards / surfaces ---- */
   .card {
-    @apply glass rounded-2xl p-6;
+    @apply rounded-lg bg-surface-card p-8;
+  }
+  .card-outline {
+    @apply rounded-lg border border-hairline bg-canvas p-8;
+  }
+  .card-dark {
+    @apply rounded-lg bg-surface-dark p-8 text-on-dark;
+  }
+
+  /* ---- Badges (rounded-pill) ---- */
+  .badge {
+    @apply inline-flex items-center rounded-pill px-3 py-1 text-xs font-medium;
+  }
+
+  /* ---- Inputs (component.text-input) ---- */
+  .input {
+    @apply rounded-md border border-hairline bg-canvas text-ink outline-none
+      focus:border-primary;
+    padding: 10px 14px;
+  }
+  .caption-up {
+    @apply text-caption-up font-medium uppercase text-muted;
   }
 }
 
-/* Thin custom scrollbars for the dark UI. */
+/* Cream-toned scrollbars. */
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 *::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: #e6dfd8;
   border-radius: 9999px;
 }
 *::-webkit-scrollbar-track {
   background: transparent;
+}
+/* Dark surfaces get a darker thumb. */
+.card-dark ::-webkit-scrollbar-thumb,
+.scroll-dark::-webkit-scrollbar-thumb {
+  background: #3a352f;
 }

@@ -44,7 +44,7 @@ export async function parseScreenshot(source: ScreenshotSource): Promise<ParsedQ
   // --- Title ---
   let title = "";
   if (layout.titleRect) {
-    debugBoxes.push(box("Заглавие", layout.titleRect, "#60a5fa"));
+    debugBoxes.push(box("Заглавие", layout.titleRect, "#cc785c"));
     const raw = await runOcrOnRegion(cropToDataUrl(src, layout.titleRect));
     title = normalizeBulgarianText(raw);
   }
@@ -56,7 +56,7 @@ export async function parseScreenshot(source: ScreenshotSource): Promise<ParsedQ
   // --- Situation image ---
   let situationImageUrl: string | undefined;
   if (layout.situationRect) {
-    debugBoxes.push(box("Ситуация", layout.situationRect, "#a78bfa"));
+    debugBoxes.push(box("Ситуация", layout.situationRect, "#5db8a6"));
     situationImageUrl = cropPreview(src, layout.situationRect);
   }
 
@@ -67,9 +67,9 @@ export async function parseScreenshot(source: ScreenshotSource): Promise<ParsedQ
     const textRect = answerTextRect(band, src.width);
     debugBoxes.push(
       box(
-        `Отговор ${i + 1} ${band.correct ? "✓" : "✗"}`,
+        `Отговор ${i + 1} ${band.uncertain ? "?" : band.correct ? "✓" : "✗"}`,
         band.rect,
-        band.correct ? "#34d399" : "#f87171",
+        band.uncertain ? "#d4a017" : band.correct ? "#5db872" : "#c64545",
       ),
     );
     const raw = await runOcrOnRegion(cropToDataUrl(src, textRect));
@@ -102,6 +102,7 @@ export async function parseScreenshot(source: ScreenshotSource): Promise<ParsedQ
     parseConfidence,
     parseWarnings: warnings,
     debugBoxes,
+    iconDots: layout.iconDots,
     debugFrame: { w: src.width, h: src.height },
   };
 }
