@@ -5,9 +5,9 @@
 // full screenshot as fallback, so a bad parse can't break the test flow.
 
 import type { ParsedAnswer, ParsedQuestion, ScreenshotSource, DebugBox } from "../types";
-import { loadImage, cropToDataUrl, cropPreview, type Rect } from "./imageUtils";
-import { detectLayout, answerTextRect } from "./layout";
-import { runOcrOnRegion } from "./ocr";
+import { loadImage, cropForOcr, cropPreview, type Rect } from "./imageUtils";
+import { detectLayout } from "./layout";
+import { runOcrOnRegion, PSM } from "./ocr";
 import { normalizeBulgarianText, looksMeaningful } from "./text";
 
 let uid = 0;
@@ -41,30 +41,37 @@ export async function parseScreenshot(source: ScreenshotSource): Promise<ParsedQ
   const warnings = [...layout.warnings];
   const debugBoxes: DebugBox[] = [];
 
-  // --- Title ---
+  // --- Title (OCR'd separately, single block, preprocessed) ---
   let title = "";
+  let titleOk = false;
   if (layout.titleRect) {
     debugBoxes.push(box("Заглавие", layout.titleRect, "#cc785c"));
-    const raw = await runOcrOnRegion(cropToDataUrl(src, layout.titleRect));
+    const raw = await runOcrOnRegion(cropForOcr(src, layout.titleRect), PSM.BLOCK);
     title = normalizeBulgarianText(raw);
   }
-  if (!looksMeaningful(title)) {
-    warnings.push("Заглавието не беше разпознато надеждно.");
-    if (!title) title = source.fileName.replace(/\.[^.]+$/, "");
+  if (looksMeaningful(title)) {
+    titleOk = true;
+  } else {
+    // Bad/empty title → filename fallback, but NEVER a fake answer.
+    warnings.push("Заглавието не беше разпознато — ползвам име на файла.");
+    title = source.fileName.replace(/\.[^.]+$/, "");
   }
 
-  // --- Situation image ---
+  // --- Situation image: only the confident stacked crop. Never full screenshot. ---
   let situationImageUrl: string | undefined;
   if (layout.situationRect) {
     debugBoxes.push(box("Ситуация", layout.situationRect, "#5db8a6"));
     situationImageUrl = cropPreview(src, layout.situationRect);
   }
+  if (layout.sideImageRect) {
+    debugBoxes.push(box("Възможна ситуация (ръчно)", layout.sideImageRect, "#5db8a6"));
+  }
 
-  // --- Answers ---
+  // --- Answers (only from icon-aligned rows; text crop excludes icon/image) ---
   const answers: ParsedAnswer[] = [];
+  let ocrFailures = 0;
   for (let i = 0; i < layout.answerBands.length; i++) {
     const band = layout.answerBands[i];
-    const textRect = answerTextRect(band, src.width);
     debugBoxes.push(
       box(
         `Отговор ${i + 1} ${band.uncertain ? "?" : band.correct ? "✓" : "✗"}`,
@@ -72,24 +79,33 @@ export async function parseScreenshot(source: ScreenshotSource): Promise<ParsedQ
         band.uncertain ? "#d4a017" : band.correct ? "#5db872" : "#c64545",
       ),
     );
-    const raw = await runOcrOnRegion(cropToDataUrl(src, textRect));
+    const raw = await runOcrOnRegion(cropForOcr(src, band.textRect), PSM.BLOCK);
     let text = normalizeBulgarianText(raw);
-    if (!looksMeaningful(text)) text = `Отговор ${i + 1}`;
+    if (!looksMeaningful(text)) {
+      text = `Отговор ${i + 1}`;
+      ocrFailures++;
+    }
     answers.push({ id: nextId("a"), text, correct: band.correct });
   }
 
   const correctCount = answers.filter((a) => a.correct).length;
+  const iconsMatch = !layout.answerBands.some((b) => b.uncertain);
 
-  // --- Warnings on suspicious results ---
+  // --- Warnings ---
   if (answers.length === 0) warnings.push("Не са открити отговори.");
   else if (answers.length < 2) warnings.push("Подозрително малко отговори (по-малко от 2).");
   else if (answers.length > 6) warnings.push("Подозрително много отговори (повече от 6).");
   if (correctCount === 0 && answers.length > 0)
     warnings.push("Не е открит верен отговор (липсва зелен индикатор).");
-  if (answers.some((a) => a.text.startsWith("Отговор ")))
-    warnings.push("Част от текста на отговорите не беше разчетен.");
+  if (ocrFailures > 0) warnings.push(`OCR не разчете ${ocrFailures} отговор(а).`);
 
-  const parseConfidence = scoreConfidence(answers.length, correctCount, warnings.length, title);
+  const parseConfidence = scoreConfidence({
+    answerCount: answers.length,
+    correctCount,
+    titleOk,
+    iconsMatch,
+    ocrFailures,
+  });
 
   return {
     id: nextId("q"),
@@ -107,14 +123,22 @@ export async function parseScreenshot(source: ScreenshotSource): Promise<ParsedQ
   };
 }
 
-function scoreConfidence(
-  answerCount: number,
-  correctCount: number,
-  warningCount: number,
-  title: string,
-): ParsedQuestion["parseConfidence"] {
-  const goodTitle = looksMeaningful(title);
-  if (answerCount >= 2 && correctCount >= 1 && warningCount === 0 && goodTitle) return "high";
-  if (answerCount >= 2 && correctCount >= 1 && warningCount <= 2) return "medium";
+interface ConfInput {
+  answerCount: number;
+  correctCount: number;
+  titleOk: boolean;
+  iconsMatch: boolean; // correctness came from real icons, not grey-card guess
+  ocrFailures: number;
+}
+
+// High  : title + 2+ answers + 1+ correct + icons matched + clean OCR
+// Medium: answers & correctness ok, but title weak OR some OCR misses
+// Low    : no title / bad OCR / no icons / weird answer count
+// (a question with no usable/correct answers also lands Low → filtered from tests)
+function scoreConfidence(c: ConfInput): ParsedQuestion["parseConfidence"] {
+  const usable = c.answerCount >= 2 && c.correctCount >= 1;
+  if (!usable) return "low";
+  if (c.titleOk && c.iconsMatch && c.ocrFailures === 0) return "high";
+  if (c.iconsMatch && (c.titleOk || c.ocrFailures <= 1)) return "medium";
   return "low";
 }

@@ -9,7 +9,6 @@ import { cx } from "../lib/utils";
 // dark rhythm: cream dashboard, dark focused test chrome.
 export default function TestScreen() {
   const { test, currentIndex, goto, toggleAnswer, submitTest, capHitSignal, setView } = useStore();
-  const [showSituation, setShowSituation] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
 
   if (!test) return null;
@@ -46,8 +45,6 @@ export default function TestScreen() {
           </div>
 
           <QuestionPanel
-            showSituation={showSituation}
-            setShowSituation={setShowSituation}
             capHitSignal={capHitSignal}
             onToggle={(aid) => toggleAnswer(currentIndex, aid)}
           />
@@ -147,13 +144,9 @@ function Legend({ className, label }: { className: string; label: string }) {
 }
 
 function QuestionPanel({
-  showSituation,
-  setShowSituation,
   capHitSignal,
   onToggle,
 }: {
-  showSituation: boolean;
-  setShowSituation: (v: boolean) => void;
   capHitSignal: number;
   onToggle: (answerId: string) => void;
 }) {
@@ -191,15 +184,14 @@ function QuestionPanel({
           </span>
         </div>
 
-        {q.situationImageUrl && showSituation && (
+        {/* Only the parsed/corrected situation crop ever appears in a test —
+            never the full original screenshot (it would reveal the answers). */}
+        {q.situationImageUrl && (
           <img
             src={q.situationImageUrl}
             alt="Ситуация"
-            className="mb-6 max-h-72 w-auto rounded-md border border-white/10"
+            className="mb-6 max-h-80 w-auto rounded-md border border-white/10"
           />
-        )}
-        {!q.situationImageUrl && q.sourceImageUrl && (
-          <SituationFallback url={q.sourceImageUrl} show={showSituation} toggle={setShowSituation} />
         )}
 
         <div className="grid gap-3">
@@ -233,31 +225,6 @@ function QuestionPanel({
         </div>
       </div>
     </motion.div>
-  );
-}
-
-function SituationFallback({
-  url,
-  show,
-  toggle,
-}: {
-  url: string;
-  show: boolean;
-  toggle: (v: boolean) => void;
-}) {
-  return (
-    <div className="mb-6">
-      <button className="btn-secondary-on-dark mb-2 !py-1.5 text-xs" onClick={() => toggle(!show)}>
-        {show ? "Скрий" : "Покажи"} оригиналната снимка
-      </button>
-      {show && (
-        <img
-          src={url}
-          alt="Оригинална снимка"
-          className="max-h-72 w-auto rounded-md border border-white/10 opacity-90"
-        />
-      )}
-    </div>
   );
 }
 

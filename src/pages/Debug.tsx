@@ -1,30 +1,36 @@
 import { useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
-import { Logo, PageFade, ConfidenceBadge, StatusBadge } from "../components/ui";
+import { Logo, ConfidenceBadge, StatusBadge } from "../components/ui";
 import { CropSelector } from "../components/CropSelector";
 import { statusOf } from "../lib/corrections";
 import { cx } from "../lib/utils";
-import type { ParsedQuestion, QuestionStatus } from "../types";
+import type { ParsedQuestion } from "../types";
 
-type Filter = "all" | "verified" | "corrected" | "parsed" | "low" | "excluded";
+type Filter = "all" | "review" | "verified" | "excluded" | "low";
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "all", label: "Всички" },
+  { key: "review", label: "За преглед" },
   { key: "verified", label: "Потвърдени" },
-  { key: "corrected", label: "Коригирани" },
-  { key: "parsed", label: "Автоматични" },
   { key: "low", label: "Ниска ув." },
   { key: "excluded", label: "Изключени" },
 ];
 
 function matchFilter(q: ParsedQuestion, f: Filter): boolean {
-  const s = statusOf(q);
   switch (f) {
     case "all":
       return true;
+    case "verified":
+      return !!q.verified && !q.excluded;
+    case "excluded":
+      return !!q.excluded;
     case "low":
       return q.parseConfidence === "low" && !q.excluded;
-    default:
-      return s === (f as QuestionStatus);
+    case "review":
+      return (
+        !q.excluded &&
+        !q.verified &&
+        (q.parseConfidence === "low" || q.parseWarnings.length > 0 || q.correctCount === 0)
+      );
   }
 }
 
@@ -36,11 +42,11 @@ export default function Debug() {
   const importRef = useRef<HTMLInputElement>(null);
 
   const list = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const s = search.trim().toLowerCase();
     return questions.filter(
       (x) =>
         matchFilter(x, filter) &&
-        (q === "" || x.title.toLowerCase().includes(q) || x.fileName.toLowerCase().includes(q)),
+        (s === "" || x.title.toLowerCase().includes(s) || x.fileName.toLowerCase().includes(s)),
     );
   }, [questions, filter, search]);
 
@@ -55,7 +61,7 @@ export default function Debug() {
     a.click();
     URL.revokeObjectURL(url);
   };
-  const onImportFile = (file: File) => {
+  const onImportFile = (file: File) =>
     file.text().then((t) => {
       try {
         importJSON(t);
@@ -63,55 +69,49 @@ export default function Debug() {
         alert("Невалиден JSON файл.");
       }
     });
-  };
 
   return (
-    <PageFade>
-      <div className="mx-auto max-w-[1300px] px-5 py-8">
-        <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
+    <div className="flex h-screen flex-col bg-canvas">
+      {/* Top bar */}
+      <header className="flex shrink-0 items-center justify-between border-b border-hairline px-5 py-3">
+        <div className="flex items-center gap-4">
           <Logo />
-          <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary" onClick={doExport}>
-              Експорт JSON
-            </button>
-            <button className="btn-secondary" onClick={() => importRef.current?.click()}>
-              Импорт JSON
-            </button>
-            <input
-              ref={importRef}
-              type="file"
-              accept="application/json"
-              className="hidden"
-              onChange={(e) => e.target.files?.[0] && onImportFile(e.target.files[0])}
-            />
-            <button
-              className="btn-secondary !text-error"
-              onClick={() => {
-                if (confirm("Изтриване на всички локални корекции?")) clearAllCorrections();
-              }}
-            >
-              Изчисти корекции
-            </button>
-            <button className="btn-primary" onClick={() => setView("dashboard")}>
-              Към таблото
-            </button>
-          </div>
-        </header>
+          <span className="font-display text-title-lg font-semibold text-ink">Debug Studio</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button className="btn-secondary" onClick={doExport}>
+            Експорт
+          </button>
+          <button className="btn-secondary" onClick={() => importRef.current?.click()}>
+            Импорт
+          </button>
+          <input
+            ref={importRef}
+            type="file"
+            accept="application/json"
+            className="hidden"
+            onChange={(e) => e.target.files?.[0] && onImportFile(e.target.files[0])}
+          />
+          <button
+            className="btn-secondary !text-error"
+            onClick={() => confirm("Изтриване на всички локални корекции?") && clearAllCorrections()}
+          >
+            Изчисти корекции
+          </button>
+          <button className="btn-primary" onClick={() => setView("dashboard")}>
+            Към таблото
+          </button>
+        </div>
+      </header>
 
-        <h1 className="mb-1 font-display text-display-md font-semibold text-ink">
-          Debug & корекции
-        </h1>
-        <p className="mb-6 text-body">
-          Парсерът е автоматичен, но не е перфектен. Тук поправяш всичко ръчно — корекциите се пазят
-          локално в браузъра.
-        </p>
-
-        <div className="grid gap-6 lg:grid-cols-[340px_1fr]">
-          {/* Master list */}
-          <div className="flex flex-col gap-3">
+      {/* 3-pane body */}
+      <div className="grid min-h-0 flex-1 grid-cols-[300px_1fr_400px]">
+        {/* LEFT: list */}
+        <div className="flex min-h-0 flex-col border-r border-hairline">
+          <div className="shrink-0 space-y-2 border-b border-hairline p-3">
             <input
               className="input w-full"
-              placeholder="Търси по заглавие или файл…"
+              placeholder="Търси заглавие/файл…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -126,41 +126,146 @@ export default function Debug() {
                 </button>
               ))}
             </div>
-            <div className="max-h-[70vh] space-y-2 overflow-y-auto pr-1">
-              {list.map((q) => (
-                <button
-                  key={q.fileName}
-                  onClick={() => setSelected(q.fileName)}
-                  className={cx(
-                    "w-full rounded-md border p-3 text-left transition-colors",
-                    current?.fileName === q.fileName
-                      ? "border-primary bg-primary/10"
-                      : "border-hairline bg-canvas hover:bg-surface-soft",
-                  )}
-                >
-                  <div className="mb-1 flex items-center justify-between gap-2">
-                    <span className="truncate font-mono text-xs text-muted">{q.fileName}</span>
-                    <StatusBadge status={statusOf(q)} />
-                  </div>
-                  <div className="truncate text-sm text-ink">{q.title || "—"}</div>
-                  <div className="mt-1 text-xs text-muted-soft">
-                    {q.answers.length} отг · {q.correctCount} верни
-                  </div>
-                </button>
-              ))}
-              {list.length === 0 && <p className="text-sm text-muted">Няма съвпадения.</p>}
-            </div>
           </div>
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+            {list.map((q) => (
+              <button
+                key={q.fileName}
+                onClick={() => setSelected(q.fileName)}
+                className={cx(
+                  "w-full rounded-md border p-3 text-left transition-colors",
+                  current?.fileName === q.fileName
+                    ? "border-primary bg-primary/10"
+                    : "border-hairline bg-canvas hover:bg-surface-soft",
+                )}
+              >
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <span className="truncate font-mono text-xs text-muted">{q.fileName}</span>
+                  <StatusBadge status={statusOf(q)} />
+                </div>
+                <div className="truncate text-sm text-ink">{q.title || "—"}</div>
+                <div className="mt-1 flex items-center gap-2 text-xs text-muted-soft">
+                  <span>{q.answers.length} отг · {q.correctCount} верни</span>
+                  {q.manualCrop && <span className="text-primary">• изрязан</span>}
+                  {q.parseWarnings.length > 0 && <span className="text-[#a06a13]">• {q.parseWarnings.length}⚠</span>}
+                </div>
+              </button>
+            ))}
+            {list.length === 0 && <p className="p-2 text-sm text-muted">Няма съвпадения.</p>}
+          </div>
+        </div>
 
-          {/* Detail editor */}
-          {current ? (
-            <Editor key={current.fileName} q={current} />
-          ) : (
-            <div className="card-outline">Зареди въпроси, за да започнеш.</div>
-          )}
+        {/* CENTER + RIGHT */}
+        {current ? (
+          <Studio key={current.fileName} q={current} />
+        ) : (
+          <div className="col-span-2 grid place-items-center text-muted">
+            Зареди въпроси, за да започнеш.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Studio({ q }: { q: ParsedQuestion }) {
+  const [cropping, setCropping] = useState(false);
+  const { setSituationImage } = useStore();
+  return (
+    <>
+      {/* CENTER: large viewer / crop */}
+      <div className="flex min-h-0 flex-col overflow-hidden bg-surface-soft">
+        {cropping ? (
+          <div className="min-h-0 flex-1 overflow-auto p-5">
+            <CropSelector
+              src={q.sourceImageUrl}
+              onCancel={() => setCropping(false)}
+              onCrop={(url) => {
+                setSituationImage(q.fileName, url);
+                setCropping(false);
+              }}
+            />
+          </div>
+        ) : (
+          <Viewer q={q} onCrop={() => setCropping(true)} />
+        )}
+      </div>
+
+      {/* RIGHT: editor */}
+      <div className="min-h-0 overflow-y-auto border-l border-hairline">
+        <Editor q={q} />
+      </div>
+    </>
+  );
+}
+
+const ZOOMS = [
+  { label: "Fit", value: 0 },
+  { label: "50%", value: 0.5 },
+  { label: "100%", value: 1 },
+  { label: "150%", value: 1.5 },
+];
+
+function Viewer({ q, onCrop }: { q: ParsedQuestion; onCrop: () => void }) {
+  const [zoom, setZoom] = useState(0); // 0 = fit width
+  const [overlays, setOverlays] = useState(true);
+  const W = q.debugFrame?.w ?? 1;
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline px-4 py-2">
+        <span className="caption-up mr-1">Мащаб</span>
+        {ZOOMS.map((z) => (
+          <button
+            key={z.label}
+            className={cx("chip !px-2.5 !py-1 text-xs", zoom === z.value && "chip-active")}
+            onClick={() => setZoom(z.value)}
+          >
+            {z.label}
+          </button>
+        ))}
+        <div className="mx-2 h-5 w-px bg-hairline" />
+        <button
+          className={cx("chip !px-2.5 !py-1 text-xs", overlays && "chip-active")}
+          onClick={() => setOverlays((v) => !v)}
+        >
+          Рамки
+        </button>
+        <button className="chip !px-2.5 !py-1 text-xs" onClick={onCrop}>
+          Изрежи ситуация
+        </button>
+        {overlays && <OverlayLegend />}
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-auto p-5">
+        <div
+          className="relative mx-auto"
+          style={zoom === 0 ? { width: "100%" } : { width: W * zoom, maxWidth: "none" }}
+        >
+          <img src={q.sourceImageUrl} alt={q.fileName} className="block w-full rounded-md border border-hairline" />
+          {overlays && <Overlay q={q} />}
         </div>
       </div>
-    </PageFade>
+    </div>
+  );
+}
+
+function OverlayLegend() {
+  const items = [
+    ["Заглавие", "#cc785c"],
+    ["Отговор", "#5db872"],
+    ["Грешен", "#c64545"],
+    ["Ситуация", "#5db8a6"],
+  ] as const;
+  return (
+    <div className="ml-auto flex flex-wrap items-center gap-3 text-xs text-muted">
+      {items.map(([l, c]) => (
+        <span key={l} className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-sm" style={{ background: c }} />
+          {l}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -176,167 +281,141 @@ function Editor({ q }: { q: ParsedQuestion }) {
     setSituationImage,
     resetQuestion,
   } = useStore();
-  const [showBoxes, setShowBoxes] = useState(true);
-  const [cropping, setCropping] = useState(false);
   const file = q.fileName;
 
   return (
-    <div className="card-outline">
-      {/* Header actions */}
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-hairline pb-4">
-        <div className="flex items-center gap-2">
-          <StatusBadge status={statusOf(q)} />
-          <ConfidenceBadge value={q.parseConfidence} />
-          <span className="font-mono text-xs text-muted-soft">авт. запис</span>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            className={cx("chip", q.verified && "chip-active")}
-            onClick={() => setVerified(file, !q.verified)}
-          >
-            {q.verified ? "✓ Потвърден" : "Потвърди"}
-          </button>
-          <button
-            className={cx("chip", q.excluded && "!border-error !bg-error !text-on-primary")}
-            onClick={() => setExcluded(file, !q.excluded)}
-          >
-            {q.excluded ? "Изключен" : "Изключи от тест"}
-          </button>
-          <button
-            className="chip"
-            onClick={() => {
-              if (confirm("Връщане към изхода на парсера за този въпрос?")) resetQuestion(file);
-            }}
-          >
-            Нулирай
-          </button>
-        </div>
+    <div className="space-y-5 p-5">
+      {/* Status + actions */}
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusBadge status={statusOf(q)} />
+        <ConfidenceBadge value={q.parseConfidence} />
+        <span className="ml-auto font-mono text-xs text-muted-soft">авт. запис ✓</span>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <button
+          className={cx("chip justify-center", q.verified && "chip-active")}
+          onClick={() => setVerified(file, !q.verified)}
+        >
+          {q.verified ? "✓ Потвърден" : "Потвърди"}
+        </button>
+        <button
+          className={cx("chip justify-center", q.excluded && "!border-error !bg-error !text-on-primary")}
+          onClick={() => setExcluded(file, !q.excluded)}
+        >
+          {q.excluded ? "Изключен" : "Изключи"}
+        </button>
+        <button
+          className="chip justify-center"
+          onClick={() => confirm("Връщане към изхода на парсера?") && resetQuestion(file)}
+        >
+          Нулирай
+        </button>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Left: screenshot + overlay + crop */}
-        <div>
-          {cropping ? (
-            <CropSelector
-              src={q.sourceImageUrl}
-              onCancel={() => setCropping(false)}
-              onCrop={(url) => {
-                setSituationImage(file, url);
-                setCropping(false);
-              }}
-            />
-          ) : (
-            <>
-              <div className="relative inline-block max-w-full overflow-hidden rounded-md border border-hairline">
-                <img src={q.sourceImageUrl} alt={q.fileName} className="block w-full" />
-                {showBoxes && <Overlay q={q} />}
-              </div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <button className="chip text-xs" onClick={() => setShowBoxes((v) => !v)}>
-                  {showBoxes ? "Скрий" : "Покажи"} рамки
-                </button>
-                <button className="chip text-xs" onClick={() => setCropping(true)}>
-                  Избери ситуация (изрязване)
-                </button>
-                <button
-                  className="chip text-xs"
-                  onClick={() => setSituationImage(file, q.sourceImageUrl)}
-                >
-                  Цяла снимка като ситуация
-                </button>
-                {q.situationImageUrl && (
-                  <button className="chip text-xs" onClick={() => setSituationImage(file, null)}>
-                    Премахни ситуация
-                  </button>
-                )}
-              </div>
-              {q.situationImageUrl && (
-                <div className="mt-3">
-                  <span className="caption-up">Текуща ситуация</span>
-                  <img
-                    src={q.situationImageUrl}
-                    alt="ситуация"
-                    className="mt-1 max-h-40 rounded-md border border-hairline"
-                  />
-                </div>
-              )}
-            </>
-          )}
+      {/* Title */}
+      <div>
+        <label className="caption-up mb-1.5 block">Заглавие / въпрос</label>
+        <textarea
+          className="input min-h-[90px] w-full resize-y text-title-sm leading-relaxed"
+          value={q.title}
+          onChange={(e) => editTitle(file, e.target.value)}
+        />
+      </div>
 
-          {q.parseWarnings.length > 0 && (
-            <div className="mt-4 rounded-md bg-accent-amber/10 p-3">
-              <span className="caption-up text-[#a06a13]">Предупреждения</span>
-              <ul className="mt-1 space-y-1 text-sm text-[#8a5a10]">
-                {q.parseWarnings.map((w, i) => (
-                  <li key={i}>• {w}</li>
-                ))}
-              </ul>
-            </div>
-          )}
+      {/* Situation */}
+      <div>
+        <div className="mb-1.5 flex items-center justify-between">
+          <label className="caption-up">Ситуация (само това се показва в теста)</label>
         </div>
-
-        {/* Right: editable fields */}
-        <div className="flex flex-col gap-5">
-          <div>
-            <label className="caption-up mb-1.5 block">Заглавие</label>
-            <textarea
-              className="input min-h-[64px] w-full resize-y"
-              value={q.title}
-              onChange={(e) => editTitle(file, e.target.value)}
+        {q.situationImageUrl ? (
+          <>
+            <img
+              src={q.situationImageUrl}
+              alt="ситуация"
+              className="mb-2 max-h-52 w-auto rounded-md border border-hairline"
             />
-          </div>
-
-          <div>
-            <div className="mb-2 flex items-center justify-between">
-              <label className="caption-up">
-                Отговори · {q.correctCount} верни от {q.answers.length}
-              </label>
-              <button className="btn-link" onClick={() => addAnswer(file)}>
-                + Добави отговор
+            <div className="flex gap-2">
+              <button
+                className="chip text-xs"
+                onClick={() => setSituationImage(file, q.sourceImageUrl)}
+              >
+                Цял скрийншот
+              </button>
+              <button className="chip text-xs !text-error" onClick={() => setSituationImage(file, null)}>
+                Премахни
               </button>
             </div>
-            <div className="flex flex-col gap-2">
-              {q.answers.map((a) => (
-                <div
-                  key={a.id}
+          </>
+        ) : (
+          <p className="rounded-md border border-dashed border-hairline px-3 py-2 text-sm text-muted">
+            Няма изображение. Използвай „Изрежи ситуация“ в прегледа вляво.
+          </p>
+        )}
+      </div>
+
+      {/* Answers */}
+      <div>
+        <div className="mb-2 flex items-center justify-between">
+          <label className="caption-up">
+            Отговори · {q.correctCount} верни от {q.answers.length}
+          </label>
+          <button className="btn-link" onClick={() => addAnswer(file)}>
+            + Добави
+          </button>
+        </div>
+        <div className="space-y-3">
+          {q.answers.map((a, i) => (
+            <div
+              key={a.id}
+              className={cx(
+                "rounded-md border p-2.5",
+                a.correct ? "border-success/50 bg-success/10" : "border-hairline bg-canvas",
+              )}
+            >
+              <div className="mb-2 flex items-center gap-2">
+                <span className="font-mono text-xs text-muted-soft">{i + 1}</span>
+                <button
+                  onClick={() => toggleAnswerCorrect(file, a.id)}
                   className={cx(
-                    "flex items-center gap-2 rounded-md border p-2",
-                    a.correct ? "border-success/50 bg-success/10" : "border-hairline bg-canvas",
+                    "rounded-md px-3 py-1 text-xs font-semibold transition-colors",
+                    a.correct
+                      ? "bg-success text-white"
+                      : "bg-surface-strong text-muted hover:bg-error/20 hover:text-error",
                   )}
                 >
-                  <button
-                    title="Маркирай верен/грешен"
-                    onClick={() => toggleAnswerCorrect(file, a.id)}
-                    className={cx(
-                      "grid h-7 w-7 shrink-0 place-items-center rounded-md text-sm font-bold transition-colors",
-                      a.correct
-                        ? "bg-success text-white"
-                        : "bg-surface-strong text-muted hover:bg-error/20 hover:text-error",
-                    )}
-                  >
-                    {a.correct ? "✓" : "✗"}
-                  </button>
-                  <input
-                    className="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none"
-                    value={a.text}
-                    onChange={(e) => editAnswerText(file, a.id, e.target.value)}
-                  />
-                  <button
-                    title="Изтрий"
-                    onClick={() => deleteAnswer(file, a.id)}
-                    className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted hover:bg-error/10 hover:text-error"
-                  >
-                    🗑
-                  </button>
-                </div>
-              ))}
-              {q.answers.length === 0 && (
-                <p className="text-sm text-error">Няма отговори — добави поне 2.</p>
-              )}
+                  {a.correct ? "✓ Верен" : "✗ Грешен"}
+                </button>
+                <button
+                  onClick={() => deleteAnswer(file, a.id)}
+                  className="ml-auto rounded-md px-2 py-1 text-muted hover:bg-error/10 hover:text-error"
+                >
+                  Изтрий
+                </button>
+              </div>
+              <textarea
+                className="input min-h-[56px] w-full resize-y text-sm"
+                value={a.text}
+                onChange={(e) => editAnswerText(file, a.id, e.target.value)}
+              />
             </div>
-          </div>
+          ))}
+          {q.answers.length === 0 && (
+            <p className="text-sm text-error">Няма отговори — добави поне 2.</p>
+          )}
         </div>
       </div>
+
+      {/* Warnings */}
+      {q.parseWarnings.length > 0 && (
+        <div className="rounded-md bg-accent-amber/10 p-3">
+          <span className="caption-up text-[#a06a13]">Предупреждения</span>
+          <ul className="mt-1 space-y-1 text-sm text-[#8a5a10]">
+            {q.parseWarnings.map((w, i) => (
+              <li key={i}>• {w}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
@@ -346,7 +425,7 @@ function Overlay({ q }: { q: ParsedQuestion }) {
   const boxes = q.debugBoxes ?? [];
   if (!q.debugFrame || (boxes.length === 0 && !(q.iconDots && q.iconDots.length))) return null;
   const { w: W, h: H } = q.debugFrame;
-  const sw = Math.max(2, W / 280);
+  const sw = Math.max(2, W / 320);
   return (
     <svg
       className="pointer-events-none absolute inset-0 h-full w-full"
@@ -355,17 +434,15 @@ function Overlay({ q }: { q: ParsedQuestion }) {
     >
       {boxes.map((b, i) => (
         <g key={i}>
+          <rect x={b.x} y={b.y} width={b.w} height={b.h} fill="none" stroke={b.color} strokeWidth={sw} />
           <rect
             x={b.x}
-            y={b.y}
-            width={b.w}
-            height={b.h}
-            fill="none"
-            stroke={b.color}
-            strokeWidth={sw}
+            y={Math.max(0, b.y - H / 36)}
+            width={Math.min(W, b.label.length * (W / 64))}
+            height={H / 36}
+            fill={b.color}
           />
-          <rect x={b.x} y={Math.max(0, b.y - H / 38)} width={b.label.length * (W / 70)} height={H / 38} fill={b.color} />
-          <text x={b.x + W / 220} y={b.y - H / 130} fill="#fff" fontSize={W / 55} fontWeight="600">
+          <text x={b.x + W / 220} y={b.y - H / 120} fill="#fff" fontSize={W / 52} fontWeight="600">
             {b.label}
           </text>
         </g>
@@ -375,7 +452,7 @@ function Overlay({ q }: { q: ParsedQuestion }) {
           key={`d${i}`}
           cx={d.x}
           cy={d.y}
-          r={Math.max(3, W / 90)}
+          r={Math.max(3, W / 80)}
           fill={d.correct ? "#5db872" : "#c64545"}
           stroke="#fff"
           strokeWidth={sw / 2}

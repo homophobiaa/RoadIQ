@@ -31,6 +31,8 @@ export interface ParsedQuestion {
   verified?: boolean;
   /** User excluded the question from tests. */
   excluded?: boolean;
+  /** Situation image came from a manual crop / full-screenshot choice. */
+  manualCrop?: boolean;
 }
 
 export interface IconDot {

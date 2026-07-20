@@ -76,7 +76,10 @@ export function applyCorrection(q: ParsedQuestion, c: Correction | undefined): P
     corrected: !!c.edited,
   };
   if (c.situationImageUrl === null) out.situationImageUrl = undefined;
-  else if (c.situationImageUrl !== undefined) out.situationImageUrl = c.situationImageUrl;
+  else if (c.situationImageUrl !== undefined) {
+    out.situationImageUrl = c.situationImageUrl;
+    out.manualCrop = true;
+  }
   return out;
 }
 

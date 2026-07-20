@@ -15,6 +15,9 @@ export default function Dashboard() {
         <header className="mb-16 flex items-center justify-between">
           <Logo />
           <div className="flex items-center gap-3">
+            <button className="btn-link" onClick={() => setView("cheatsheets")}>
+              Справочник
+            </button>
             {loadState === "done" && (
               <>
                 <button className="btn-link" onClick={() => setView("debug")}>
@@ -124,13 +127,14 @@ function DonePanel({
 }) {
   return (
     <div className="flex flex-col gap-10">
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-7">
         <StatCard label="Намерени" value={sources} />
         <StatCard label="Годни за тест" value={counts.usable} accent="text-primary-active" />
+        <StatCard label="За преглед" value={counts.needsReview} accent="text-[#a06a13]" />
         <StatCard label="Потвърдени" value={counts.verified} accent="text-success" />
-        <StatCard label="Коригирани" value={counts.corrected} accent="text-primary" />
-        <StatCard label="Ниска увереност" value={counts.low} accent="text-[#a06a13]" />
         <StatCard label="Изключени" value={counts.excluded} accent="text-muted" />
+        <StatCard label="Ръчни изрязвания" value={counts.manualCrops} accent="text-primary" />
+        <StatCard label="Ниска увереност" value={counts.low} accent="text-error" />
       </div>
 
       <TestSetup counts={counts} onStart={onStart} />
@@ -228,7 +232,7 @@ function TestSetup({ counts, onStart }: { counts: Counts; onStart: (n: number) =
           </p>
         </div>
         <button className="btn-secondary-on-dark mt-6 w-full" onClick={() => setView("debug")}>
-          Отвори Debug / корекции
+          Отвори Debug Studio
         </button>
       </div>
     </div>

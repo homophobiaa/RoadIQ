@@ -35,7 +35,14 @@ import {
   type CorrectionMap,
 } from "./lib/corrections";
 
-export type View = "dashboard" | "test" | "results" | "review" | "debug";
+export type View =
+  | "dashboard"
+  | "test"
+  | "results"
+  | "review"
+  | "debug"
+  | "cheatsheets"
+  | "speedLimits";
 export type LoadState = "idle" | "loading" | "done";
 
 const RAW_CACHE_PREFIX = "roadiq:rawcache:";
@@ -97,7 +104,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [progress, setProgress] = useState<ProgressState | null>(null);
 
-  const [includeUnverified, setIncludeUnverified] = useState(true);
+  // Default: prefer verified/corrected; only fall back to unverified when there
+  // aren't enough (buildTest tops up automatically), or when the user opts in.
+  const [includeUnverified, setIncludeUnverified] = useState(false);
   const [test, setTest] = useState<TestQuestion[] | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [capHitSignal, setCapHitSignal] = useState(0);
@@ -367,10 +376,19 @@ export function useStore(): Store {
 export function questionCounts(questions: ParsedQuestion[]) {
   return {
     total: questions.length,
+    parsed: questions.filter((q) => !q.excluded).length,
     usable: questions.filter(isGradable).length,
     verified: questions.filter((q) => q.verified && !q.excluded).length,
     corrected: questions.filter((q) => q.corrected && !q.verified && !q.excluded).length,
+    // Need review: usable, not verified, and weak (low confidence or warnings).
+    needsReview: questions.filter(
+      (q) =>
+        !q.excluded &&
+        !q.verified &&
+        (q.parseConfidence === "low" || q.parseWarnings.length > 0 || q.correctCount === 0),
+    ).length,
     low: questions.filter((q) => q.parseConfidence === "low" && !q.excluded).length,
     excluded: questions.filter((q) => q.excluded).length,
+    manualCrops: questions.filter((q) => q.manualCrop && !q.excluded).length,
   };
 }
