@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence, useAnimationControls } from "framer-motion";
-import { useStore } from "../store";
+import { useNavigate } from "react-router-dom";
+import { ROUTES, useStore } from "../store";
 import { Logo } from "../components/ui";
 import { isAnswered } from "../lib/testEngine";
 import { cx } from "../lib/utils";
@@ -8,7 +9,8 @@ import { cx } from "../lib/utils";
 // The test screen is a dark navy "product surface" per DESIGN.md — the cream-to-
 // dark rhythm: cream dashboard, dark focused test chrome.
 export default function TestScreen() {
-  const { test, currentIndex, goto, toggleAnswer, submitTest, capHitSignal, setView } = useStore();
+  const { test, currentIndex, goto, toggleAnswer, submitTest, capHitSignal } = useStore();
+  const navigate = useNavigate();
   const [toast, setToast] = useState<string | null>(null);
 
   if (!test) return null;
@@ -26,6 +28,7 @@ export default function TestScreen() {
       return;
     }
     submitTest();
+    navigate(ROUTES.results);
   };
 
   return (
@@ -39,7 +42,7 @@ export default function TestScreen() {
         <main className="flex-1">
           <div className="mb-6 flex items-center justify-between">
             <Logo onDark />
-            <button className="btn-secondary-on-dark" onClick={() => setView("dashboard")}>
+            <button className="btn-secondary-on-dark" onClick={() => navigate(ROUTES.dashboard)}>
               Изход
             </button>
           </div>

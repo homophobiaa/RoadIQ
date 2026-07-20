@@ -1,5 +1,6 @@
 import { AnimatePresence } from "framer-motion";
-import { useStore } from "./store";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { ROUTES, useStore } from "./store";
 import Dashboard from "./pages/Dashboard";
 import TestScreen from "./pages/TestScreen";
 import Results from "./pages/Results";
@@ -7,21 +8,27 @@ import Review from "./pages/Review";
 import Debug from "./pages/Debug";
 import CheatSheetsPage from "./pages/CheatSheetsPage";
 import SpeedLimitsPage from "./pages/SpeedLimitsPage";
+import CategoriesPage from "./pages/CategoriesPage";
 
 export default function App() {
-  const { view } = useStore();
+  const location = useLocation();
+  const { test, grade } = useStore();
 
   return (
-    <div className="min-h-full">
-      <AnimatePresence mode="wait">
-        {view === "dashboard" && <Dashboard key="dashboard" />}
-        {view === "test" && <TestScreen key="test" />}
-        {view === "results" && <Results key="results" />}
-        {view === "review" && <Review key="review" />}
-        {view === "debug" && <Debug key="debug" />}
-        {view === "cheatsheets" && <CheatSheetsPage key="cheatsheets" />}
-        {view === "speedLimits" && <SpeedLimitsPage key="speedLimits" />}
-      </AnimatePresence>
-    </div>
+    // `location.pathname` keys the transition so route changes animate.
+    <AnimatePresence mode="wait">
+      <Routes location={location} key={location.pathname}>
+        <Route path={ROUTES.dashboard} element={<Dashboard />} />
+        {/* Test flow needs in-memory state; if it's gone (e.g. refresh), bounce home. */}
+        <Route path={ROUTES.test} element={test ? <TestScreen /> : <Navigate to={ROUTES.dashboard} replace />} />
+        <Route path={ROUTES.results} element={grade ? <Results /> : <Navigate to={ROUTES.dashboard} replace />} />
+        <Route path={ROUTES.review} element={grade ? <Review /> : <Navigate to={ROUTES.dashboard} replace />} />
+        <Route path={ROUTES.debug} element={<Debug />} />
+        <Route path={ROUTES.cheatsheets} element={<CheatSheetsPage />} />
+        <Route path={ROUTES.speedLimits} element={<SpeedLimitsPage />} />
+        <Route path={ROUTES.categories} element={<CategoriesPage />} />
+        <Route path="*" element={<Navigate to={ROUTES.dashboard} replace />} />
+      </Routes>
+    </AnimatePresence>
   );
 }

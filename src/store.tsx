@@ -35,15 +35,19 @@ import {
   type CorrectionMap,
 } from "./lib/corrections";
 
-export type View =
-  | "dashboard"
-  | "test"
-  | "results"
-  | "review"
-  | "debug"
-  | "cheatsheets"
-  | "speedLimits";
 export type LoadState = "idle" | "loading" | "done";
+
+// Central route paths (real URLs via react-router).
+export const ROUTES = {
+  dashboard: "/",
+  test: "/test",
+  results: "/results",
+  review: "/review",
+  debug: "/debug",
+  cheatsheets: "/cheatsheets",
+  speedLimits: "/cheatsheets/speed-limits",
+  categories: "/cheatsheets/categories",
+} as const;
 
 const RAW_CACHE_PREFIX = "roadiq:rawcache:";
 const cacheKey = (s: ScreenshotSource[]) =>
@@ -57,9 +61,6 @@ interface ProgressState extends ParseProgress {
 }
 
 interface Store {
-  view: View;
-  setView: (v: View) => void;
-
   sources: ScreenshotSource[];
   questions: ParsedQuestion[]; // corrected/displayed
   loadState: LoadState;
@@ -80,6 +81,10 @@ interface Store {
   importJSON: (json: string) => void;
   clearAllCorrections: () => void;
 
+  // ---- Shared study-category preference (localStorage) ----
+  studyCategory: string;
+  setStudyCategory: (c: string) => void;
+
   // ---- Test ----
   includeUnverified: boolean;
   setIncludeUnverified: (v: boolean) => void;
@@ -97,12 +102,25 @@ interface Store {
 const Ctx = createContext<Store | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [view, setView] = useState<View>("dashboard");
   const [sources] = useState<ScreenshotSource[]>(() => loadScreenshotSources());
   const [rawQuestions, setRawQuestions] = useState<ParsedQuestion[]>([]);
   const [corrections, setCorrections] = useState<CorrectionMap>(() => loadCorrections());
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [progress, setProgress] = useState<ProgressState | null>(null);
+
+  // Shared "which licence am I studying for" preference — drives default quiz
+  // scope on both the speed and category pages. Defaults to B.
+  const [studyCategory, setStudyCategoryState] = useState<string>(
+    () => localStorage.getItem("roadiq:studyCategory") || "B",
+  );
+  const setStudyCategory = useCallback((c: string) => {
+    setStudyCategoryState(c);
+    try {
+      localStorage.setItem("roadiq:studyCategory", c);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   // Default: prefer verified/corrected; only fall back to unverified when there
   // aren't enough (buildTest tops up automatically), or when the user opts in.
@@ -261,7 +279,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setCurrentIndex(0);
       setGrade(null);
       startTimeRef.current = Date.now();
-      setView("test");
     },
     [questions, includeUnverified],
   );
@@ -293,15 +310,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (!prev) return prev;
       setGrade(gradeTest(prev));
       setElapsedMs(Date.now() - startTimeRef.current);
-      setView("results");
       return prev;
     });
   }, []);
 
   const value = useMemo<Store>(
     () => ({
-      view,
-      setView,
       sources,
       questions,
       loadState,
@@ -319,6 +333,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       exportJSON,
       importJSON,
       clearAllCorrections,
+      studyCategory,
+      setStudyCategory,
       includeUnverified,
       setIncludeUnverified,
       test,
@@ -332,7 +348,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       elapsedMs,
     }),
     [
-      view,
       sources,
       questions,
       loadState,
@@ -350,6 +365,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       exportJSON,
       importJSON,
       clearAllCorrections,
+      studyCategory,
+      setStudyCategory,
       includeUnverified,
       test,
       currentIndex,

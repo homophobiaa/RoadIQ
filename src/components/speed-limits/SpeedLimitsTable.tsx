@@ -101,6 +101,5 @@ export function SpeedLimitsTable({
 
 function describe(v: SpeedLimitValue): string {
   if (v.type === "speed") return v.note ? `${v.value} km/h ${v.note}` : `${v.value} km/h`;
-  if (v.type === "prohibited") return "забранено движението";
-  return "не е посочена стойност";
+  return "забранено движението";
 }

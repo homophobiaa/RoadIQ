@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { useStore } from "../store";
+import { useNavigate } from "react-router-dom";
+import { ROUTES, useStore } from "../store";
 import { Logo, PageFade } from "../components/ui";
 import { cx } from "../lib/utils";
 import type { TestResultRow } from "../types";
 
 export default function Review() {
-  const { grade, setView } = useStore();
+  const { grade } = useStore();
+  const navigate = useNavigate();
   const [onlyMistakes, setOnlyMistakes] = useState(true);
   if (!grade) return null;
 
@@ -45,10 +47,10 @@ export default function Review() {
         </div>
 
         <div className="mt-10 flex justify-center gap-3">
-          <button className="btn-secondary" onClick={() => setView("results")}>
+          <button className="btn-secondary" onClick={() => navigate(ROUTES.results)}>
             ← Към резултата
           </button>
-          <button className="btn-link" onClick={() => setView("dashboard")}>
+          <button className="btn-link" onClick={() => navigate(ROUTES.dashboard)}>
             Към таблото
           </button>
         </div>

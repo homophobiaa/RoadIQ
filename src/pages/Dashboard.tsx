@@ -1,38 +1,42 @@
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { questionCounts, useStore } from "../store";
-import { Logo, PageFade, SpikeMark, StatCard } from "../components/ui";
+import { useNavigate } from "react-router-dom";
+import { questionCounts, ROUTES, useStore } from "../store";
+import { PageFade, SpikeMark, StatCard } from "../components/ui";
+import { TopNav } from "../components/TopNav";
+import { ReferenceCard } from "../components/ReferenceCard";
 import { cx } from "../lib/utils";
 
 export default function Dashboard() {
-  const { sources, questions, loadState, loadQuestions, startTest, setView } = useStore();
+  const { sources, questions, loadState, loadQuestions, startTest } = useStore();
+  const navigate = useNavigate();
   const counts = useMemo(() => questionCounts(questions), [questions]);
+
+  const onStart = (n: number) => {
+    startTest(n);
+    navigate(ROUTES.test);
+  };
 
   return (
     <PageFade>
       <div className="mx-auto max-w-[1100px] px-6 py-10">
-        {/* Top nav */}
-        <header className="mb-16 flex items-center justify-between">
-          <Logo />
-          <div className="flex items-center gap-3">
-            <button className="btn-link" onClick={() => setView("cheatsheets")}>
-              Справочник
-            </button>
-            {loadState === "done" && (
+        <TopNav
+          right={
+            loadState === "done" ? (
               <>
-                <button className="btn-link" onClick={() => setView("debug")}>
+                <button className="btn-link" onClick={() => navigate(ROUTES.debug)}>
                   Debug / корекции
                 </button>
                 <button className="btn-secondary" onClick={() => loadQuestions(true)}>
                   Презареди
                 </button>
               </>
-            )}
-          </div>
-        </header>
+            ) : undefined
+          }
+        />
 
         {/* Hero */}
-        <section className="mb-12 max-w-3xl">
+        <section className="mb-10 max-w-3xl">
           <span className="caption-up mb-4 inline-flex items-center gap-2">
             <SpikeMark className="h-3.5 w-3.5" /> Листовки тренировка
           </span>
@@ -48,16 +52,23 @@ export default function Dashboard() {
             <code className="rounded-sm bg-surface-card px-1.5 py-0.5 font-mono text-sm text-primary-active">
               public/screenshots/
             </code>
-            . RoadIQ ги разчита автоматично в браузъра с OCR и генерира случайни тестове — без
-            backend, без ръчно писане.
+            . RoadIQ ги разчита автоматично в браузъра с OCR и генерира случайни тестове.
           </p>
         </section>
 
-        {loadState === "idle" && <IdlePanel found={sources.length} onLoad={() => loadQuestions()} />}
-        {loadState === "loading" && <LoadingPanel />}
-        {loadState === "done" && (
-          <DonePanel counts={counts} sources={sources.length} onStart={startTest} />
-        )}
+        {/* Two main actions: practise tests OR open the reference. */}
+        <div className="mb-12 grid gap-6 lg:grid-cols-[1.5fr_1fr]">
+          <div>
+            {loadState === "idle" && (
+              <IdlePanel found={sources.length} onLoad={() => loadQuestions()} />
+            )}
+            {loadState === "loading" && <LoadingPanel />}
+            {loadState === "done" && (
+              <DonePanel counts={counts} sources={sources.length} onStart={onStart} />
+            )}
+          </div>
+          <ReferenceCard onOpen={() => navigate(ROUTES.cheatsheets)} />
+        </div>
       </div>
     </PageFade>
   );
@@ -126,14 +137,13 @@ function DonePanel({
   onStart: (n: number) => void;
 }) {
   return (
-    <div className="flex flex-col gap-10">
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-7">
+    <div className="flex flex-col gap-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <StatCard label="Намерени" value={sources} />
         <StatCard label="Годни за тест" value={counts.usable} accent="text-primary-active" />
         <StatCard label="За преглед" value={counts.needsReview} accent="text-[#a06a13]" />
         <StatCard label="Потвърдени" value={counts.verified} accent="text-success" />
         <StatCard label="Изключени" value={counts.excluded} accent="text-muted" />
-        <StatCard label="Ръчни изрязвания" value={counts.manualCrops} accent="text-primary" />
         <StatCard label="Ниска увереност" value={counts.low} accent="text-error" />
       </div>
 
@@ -143,7 +153,7 @@ function DonePanel({
 }
 
 function TestSetup({ counts, onStart }: { counts: Counts; onStart: (n: number) => void }) {
-  const { includeUnverified, setIncludeUnverified, setView } = useStore();
+  const { includeUnverified, setIncludeUnverified } = useStore();
   const max = counts.usable;
   const [count, setCount] = useState(Math.min(10, Math.max(1, max)));
   const disabled = max === 0;
@@ -154,87 +164,67 @@ function TestSetup({ counts, onStart }: { counts: Counts; onStart: (n: number) =
   const warnUnverified = willUseUnverified && trusted < count;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-      {/* Featured coral-adjacent setup card */}
-      <div className="card-outline">
-        <h2 className="font-display text-display-sm font-semibold text-ink">Започни тест</h2>
-        <p className="mt-1 text-body">
-          {disabled
-            ? "Няма годни въпроси. Отвори Debug, за да коригираш разчитането."
-            : `Налични годни въпроси: ${max}`}
-        </p>
+    <div className="card-outline">
+      <h2 className="font-display text-display-sm font-semibold text-ink">Започни тест</h2>
+      <p className="mt-1 text-body">
+        {disabled
+          ? "Няма годни въпроси. Отвори Debug, за да коригираш разчитането."
+          : `Налични годни въпроси: ${max}`}
+      </p>
 
-        <label className="caption-up mt-7 mb-2 block">Брой въпроси</label>
-        <div className="flex flex-wrap items-center gap-3">
-          <input
-            type="number"
-            min={1}
-            max={Math.max(1, max)}
-            value={count}
-            disabled={disabled}
-            onChange={(e) => set(parseInt(e.target.value || "1", 10))}
-            className="input w-24 text-center text-title-lg font-semibold"
-          />
-          {[10, 20, 30].map((q) => (
-            <button
-              key={q}
-              disabled={disabled || q > max}
-              className={cx("chip", count === q && "chip-active")}
-              onClick={() => set(q)}
-            >
-              {q}
-            </button>
-          ))}
+      <label className="caption-up mt-7 mb-2 block">Брой въпроси</label>
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          type="number"
+          min={1}
+          max={Math.max(1, max)}
+          value={count}
+          disabled={disabled}
+          onChange={(e) => set(parseInt(e.target.value || "1", 10))}
+          className="input w-24 text-center text-title-lg font-semibold"
+        />
+        {[10, 20, 30].map((q) => (
           <button
-            disabled={disabled}
-            className={cx("chip", count === max && "chip-active")}
-            onClick={() => set(max)}
+            key={q}
+            disabled={disabled || q > max}
+            className={cx("chip", count === q && "chip-active")}
+            onClick={() => set(q)}
           >
-            Всички
+            {q}
           </button>
-        </div>
-
-        <label className="mt-6 flex cursor-pointer items-center gap-3">
-          <input
-            type="checkbox"
-            checked={includeUnverified}
-            onChange={(e) => setIncludeUnverified(e.target.checked)}
-            className="h-4 w-4 accent-[#cc785c]"
-          />
-          <span className="text-sm text-body">Използвай и непроверени въпроси</span>
-        </label>
-
-        {warnUnverified && (
-          <p className="mt-3 rounded-md bg-accent-amber/15 px-3 py-2 text-sm text-[#a06a13]">
-            ⚠ Тестът ще включи непроверени/нискоувереност въпроси — потвърдените не достигат.
-          </p>
-        )}
-
+        ))}
         <button
           disabled={disabled}
-          className="btn-primary mt-7 w-full py-3 text-base shadow-coral"
-          onClick={() => onStart(count)}
+          className={cx("chip", count === max && "chip-active")}
+          onClick={() => set(max)}
         >
-          Започни тест →
+          Всички
         </button>
       </div>
 
-      {/* Side dark card: correction safety-net pitch */}
-      <div className="card-dark flex flex-col justify-between">
-        <div>
-          <SpikeMark className="mb-4 h-5 w-5" color="#cc785c" />
-          <h3 className="font-display text-title-lg font-semibold text-on-dark">
-            Парсерът греши — ти го поправяш.
-          </h3>
-          <p className="mt-3 text-sm text-on-dark-soft">
-            В Debug режима можеш да редактираш заглавия и отговори, да маркираш верните, да изрязваш
-            ситуационната снимка и да потвърждаваш въпроси. Корекциите се пазят локално.
-          </p>
-        </div>
-        <button className="btn-secondary-on-dark mt-6 w-full" onClick={() => setView("debug")}>
-          Отвори Debug Studio
-        </button>
-      </div>
+      <label className="mt-6 flex cursor-pointer items-center gap-3">
+        <input
+          type="checkbox"
+          checked={includeUnverified}
+          onChange={(e) => setIncludeUnverified(e.target.checked)}
+          className="h-4 w-4 accent-[#cc785c]"
+        />
+        <span className="text-sm text-body">Използвай и непроверени въпроси</span>
+      </label>
+
+      {warnUnverified && (
+        <p className="mt-3 rounded-md bg-accent-amber/15 px-3 py-2 text-sm text-[#a06a13]">
+          ⚠ Тестът ще включи непроверени/нискоувереност въпроси — потвърдените не достигат.
+        </p>
+      )}
+
+      <button
+        disabled={disabled}
+        className="btn-primary mt-7 w-full py-3 text-base shadow-coral"
+        onClick={() => onStart(count)}
+      >
+        Започни тест →
+      </button>
     </div>
   );
 }

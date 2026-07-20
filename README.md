@@ -5,11 +5,34 @@
 (OCR + image processing) и генерира случайни тестове. **Само frontend — без
 backend, без база данни, без ръчно писане на въпроси.**
 
+## Маршрути (React Router)
+
+Реални URL адреси — refresh, back/forward и директно отваряне работят:
+
+```txt
+/                          Табло (тестове)
+/test /results /review     Тестов поток (изисква активен тест в паметта)
+/debug                     Debug Studio (корекции)
+/cheatsheets               Справочник (хъб)
+/cheatsheets/speed-limits  Ограничения на скоростта
+/cheatsheets/categories    Категории превозни средства (?category=B1)
+```
+
+### SPA fallback при деплой
+
+Приложението е single-page app — сървърът трябва да връща `index.html` за всички
+пътища. Включени са готови конфигурации:
+
+- **Netlify** — `public/_redirects` (`/* /index.html 200`)
+- **Vercel** — `vercel.json` (rewrite към `/index.html`)
+- **GitHub Pages / друг static host** — настрой SPA fallback към `index.html`
+  (напр. копие на `index.html` като `404.html`).
+
 ## Стартиране
 
 ```bash
 npm install
-npm run dev
+npm run dev   # http://localhost:4321 (портът е фиксиран заради Windows reserved range)
 ```
 
 После:

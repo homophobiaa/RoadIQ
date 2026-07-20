@@ -1,146 +1,220 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { useStore } from "../store";
-import { Logo, PageFade } from "../components/ui";
+import { Link } from "react-router-dom";
+import { ROUTES } from "../store";
+import { PageFade } from "../components/ui";
+import { TopNav } from "../components/TopNav";
 import { cx } from "../lib/utils";
-import { getCategory, type RoadType } from "../data/speedLimits";
-import { SpeedLimitsHero } from "../components/speed-limits/SpeedLimitsHero";
-import { RoadTypeSelector } from "../components/speed-limits/RoadTypeSelector";
-import { CategorySelector } from "../components/speed-limits/CategorySelector";
-import { SpeedDisplay } from "../components/speed-limits/SpeedDisplay";
+import {
+  getCategory,
+  ROAD_TYPES,
+  SPEED_LIMIT_CATEGORIES,
+  roadTypeLabel,
+  type RoadType,
+} from "../data/speedLimits";
+import { RoadTypeIcon, RoadSignNumber, ProhibitedSign } from "../components/speed-limits/shared";
 import { SpeedLimitsTable } from "../components/speed-limits/SpeedLimitsTable";
-import { CategoryCompare } from "../components/speed-limits/CategoryCompare";
 import { SpeedKnowledgeQuiz } from "../components/speed-limits/SpeedKnowledgeQuiz";
 import { SpeedLimitsSourceNote } from "../components/speed-limits/SpeedLimitsSourceNote";
-
-type Mode = "explore" | "compare" | "quiz";
-const MODES: { key: Mode; label: string }[] = [
-  { key: "explore", label: "Изследвай" },
-  { key: "compare", label: "Сравни категории" },
-  { key: "quiz", label: "Провери знанията си" },
-];
 
 const DEFAULT_CATEGORY = "b";
 
 export default function SpeedLimitsPage() {
-  const { setView } = useStore();
-  const [mode, setMode] = useState<Mode>("explore");
   const [roadType, setRoadType] = useState<RoadType>("urban");
   const [categoryId, setCategoryId] = useState(DEFAULT_CATEGORY);
+  const [tab, setTab] = useState<"table" | "quiz">("table");
   const category = getCategory(categoryId) ?? getCategory(DEFAULT_CATEGORY)!;
-
-  const reset = () => {
-    setRoadType("urban");
-    setCategoryId(DEFAULT_CATEGORY);
-  };
 
   return (
     <PageFade>
       <div className="mx-auto max-w-[1200px] px-6 py-8">
-        {/* Nav */}
-        <header className="mb-8 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Logo />
-            <span className="hidden text-muted sm:inline">/</span>
-            <button className="btn-link hidden sm:inline-flex" onClick={() => setView("cheatsheets")}>
-              Справочник
-            </button>
-          </div>
-          <div className="flex gap-2">
-            <button className="btn-secondary" onClick={() => setView("cheatsheets")}>
+        <TopNav
+          right={
+            <Link className="btn-secondary" to={ROUTES.cheatsheets}>
               ← Справочник
-            </button>
-            <button className="btn-link" onClick={() => setView("dashboard")}>
-              Табло
-            </button>
-          </div>
-        </header>
+            </Link>
+          }
+        />
 
-        <SpeedLimitsHero />
+        {/* Slim hero */}
+        <div className="mb-6">
+          <span className="badge mb-3 bg-primary/15 text-primary-active">Данни от учебната таблица</span>
+          <h1 className="font-display text-display-md font-semibold text-ink">
+            Ограничения на скоростта
+          </h1>
+          <p className="mt-2 max-w-2xl text-body">
+            Максимално допустимите скорости по категория и тип път. Кликни клетка в таблицата, за да
+            я заредиш в бързата проверка.
+          </p>
+        </div>
 
-        {/* Mode tabs */}
-        <div className="mt-8 flex flex-wrap items-center gap-2">
-          {MODES.map((m) => (
+        {/* Tabs */}
+        <div className="mb-5 flex items-center gap-2">
+          {(["table", "quiz"] as const).map((t) => (
             <button
-              key={m.key}
-              onClick={() => setMode(m.key)}
-              className={cx("relative rounded-md px-4 py-2 text-sm font-medium transition-colors", mode === m.key ? "text-on-primary" : "text-body hover:bg-surface-soft")}
+              key={t}
+              onClick={() => setTab(t)}
+              className={cx(
+                "relative rounded-md px-4 py-2 text-sm font-medium transition-colors",
+                tab === t ? "text-on-primary" : "text-body hover:bg-surface-soft",
+              )}
             >
-              {mode === m.key && (
+              {tab === t && (
                 <motion.span
-                  layoutId="modeTab"
+                  layoutId="speedTab"
                   className="absolute inset-0 -z-0 rounded-md bg-primary"
                   transition={{ type: "spring", stiffness: 500, damping: 34 }}
                 />
               )}
-              <span className="relative z-10">{m.label}</span>
+              <span className="relative z-10">{t === "table" ? "Таблица" : "Провери знанията си"}</span>
             </button>
           ))}
-          {mode === "explore" && (
-            <button className="btn-link ml-auto" onClick={reset}>
-              Нулирай избора
-            </button>
+        </div>
+
+        <AnimatePresence mode="wait">
+          {tab === "table" ? (
+            <motion.div
+              key="table"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.22 }}
+              className="grid gap-6 lg:grid-cols-[1fr_320px]"
+            >
+              {/* Table is the primary content */}
+              <section className="lg:order-1 order-2">
+                <SpeedLimitsTable
+                  selectedCategory={categoryId}
+                  selectedRoad={roadType}
+                  onSelect={(c, r) => {
+                    setCategoryId(c);
+                    setRoadType(r);
+                  }}
+                />
+              </section>
+
+              {/* Compact quick-check panel (side on desktop, collapsible on mobile) */}
+              <aside className="lg:order-2 order-1 lg:sticky lg:top-6 lg:self-start">
+                <QuickCheck
+                  roadType={roadType}
+                  categoryId={categoryId}
+                  onRoad={setRoadType}
+                  onCategory={setCategoryId}
+                  category={category}
+                />
+              </aside>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="quiz"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.22 }}
+            >
+              <SpeedKnowledgeQuiz />
+            </motion.div>
           )}
-        </div>
-
-        <div className="mt-6">
-          <AnimatePresence mode="wait">
-            {mode === "explore" && (
-              <motion.div
-                key="explore"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.25 }}
-                className="grid gap-6 lg:grid-cols-[1fr_360px]"
-              >
-                <div className="space-y-6">
-                  <section>
-                    <h2 className="caption-up mb-3">Тип път</h2>
-                    <RoadTypeSelector value={roadType} onChange={setRoadType} />
-                  </section>
-                  <section>
-                    <h2 className="caption-up mb-3">Категория</h2>
-                    <CategorySelector value={categoryId} onChange={setCategoryId} />
-                  </section>
-                  <section>
-                    <h2 className="caption-up mb-3">Пълна таблица</h2>
-                    <SpeedLimitsTable
-                      selectedCategory={categoryId}
-                      selectedRoad={roadType}
-                      onSelect={(c, r) => {
-                        setCategoryId(c);
-                        setRoadType(r);
-                      }}
-                    />
-                  </section>
-                </div>
-
-                {/* Sticky central display */}
-                <div className="lg:sticky lg:top-6 lg:self-start">
-                  <SpeedDisplay category={category} roadType={roadType} />
-                </div>
-              </motion.div>
-            )}
-
-            {mode === "compare" && (
-              <motion.div key="compare" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.25 }}>
-                <CategoryCompare />
-              </motion.div>
-            )}
-
-            {mode === "quiz" && (
-              <motion.div key="quiz" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.25 }}>
-                <SpeedKnowledgeQuiz />
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+        </AnimatePresence>
 
         <div className="mt-10">
           <SpeedLimitsSourceNote />
         </div>
       </div>
     </PageFade>
+  );
+}
+
+function QuickCheck({
+  roadType,
+  categoryId,
+  onRoad,
+  onCategory,
+  category,
+}: {
+  roadType: RoadType;
+  categoryId: string;
+  onRoad: (r: RoadType) => void;
+  onCategory: (c: string) => void;
+  category: ReturnType<typeof getCategory>;
+}) {
+  // Collapsed by default on mobile; always shown on lg via CSS.
+  const [open, setOpen] = useState(false);
+  const v = category!.limits[roadType];
+
+  return (
+    <div className="rounded-lg border border-hairline bg-surface-card">
+      <button
+        className="flex w-full items-center justify-between px-4 py-3 lg:cursor-default"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span className="font-display text-title-md font-semibold text-ink">Бърза проверка</span>
+        <span className={cx("text-muted transition-transform lg:hidden", open && "rotate-180")}>▾</span>
+      </button>
+
+      <div className={cx("px-4 pb-4", open ? "block" : "hidden lg:block")}>
+        {/* Central compact sign */}
+        <div className="mb-4 flex flex-col items-center rounded-md bg-surface-dark p-4 text-on-dark">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={`${categoryId}-${roadType}-${v.type}`}
+              initial={{ opacity: 0, scale: 0.85 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              transition={{ type: "spring", stiffness: 300, damping: 22 }}
+              className="flex flex-col items-center"
+            >
+              {v.type === "speed" ? <RoadSignNumber value={v.value} size={92} /> : <ProhibitedSign size={92} />}
+              <span className="mt-2 text-sm text-on-dark-soft">
+                {v.type === "speed" ? "km/h" : "Забранено движението"}
+              </span>
+              {v.type === "speed" && v.note && (
+                <span className="mt-1 badge bg-accent-amber/20 text-accent-amber">{v.note}</span>
+              )}
+            </motion.div>
+          </AnimatePresence>
+          <span className="mt-3 text-center text-xs text-on-dark-soft">
+            {category!.label} · {roadTypeLabel(roadType)}
+          </span>
+        </div>
+
+        {/* Road-type mini selector */}
+        <div className="mb-3 grid grid-cols-2 gap-2">
+          {ROAD_TYPES.map((r) => (
+            <button
+              key={r.id}
+              onClick={() => onRoad(r.id)}
+              className={cx(
+                "flex items-center gap-2 rounded-md border px-2.5 py-2 text-left text-xs font-medium transition-colors",
+                r.id === roadType
+                  ? "border-primary bg-primary/10 text-ink"
+                  : "border-hairline bg-canvas text-body hover:bg-surface-soft",
+              )}
+            >
+              <RoadTypeIcon type={r.id} size={18} />
+              <span className="leading-tight">{r.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Category compact chips */}
+        <div className="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto">
+          {SPEED_LIMIT_CATEGORIES.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => onCategory(c.id)}
+              className={cx(
+                "rounded-md border px-2 py-1 text-xs font-medium transition-colors",
+                c.id === categoryId
+                  ? "border-primary bg-primary text-on-primary"
+                  : "border-hairline bg-canvas text-body hover:bg-surface-soft",
+              )}
+            >
+              {c.shortLabel ?? c.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }

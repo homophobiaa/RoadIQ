@@ -1,11 +1,13 @@
 import { motion } from "framer-motion";
-import { useStore } from "../store";
+import { useNavigate } from "react-router-dom";
+import { ROUTES, useStore } from "../store";
 import { PageFade } from "../components/ui";
 import { PASSING_PERCENT } from "../lib/testEngine";
 import { formatDuration } from "../lib/utils";
 
 export default function Results() {
-  const { grade, elapsedMs, setView, startTest, test } = useStore();
+  const { grade, elapsedMs, startTest, test } = useStore();
+  const navigate = useNavigate();
   if (!grade) return null;
   const { percent, correct, total, passed } = grade;
   const ring = passed ? "#5db872" : "#c64545";
@@ -56,14 +58,17 @@ export default function Results() {
           <div className="mt-8 flex flex-col gap-3">
             <button
               className="btn-primary py-3 shadow-coral"
-              onClick={() => startTest(test ? test.length : 10)}
+              onClick={() => {
+                startTest(test ? test.length : 10);
+                navigate(ROUTES.test);
+              }}
             >
               Нов тест
             </button>
-            <button className="btn-secondary" onClick={() => setView("review")}>
+            <button className="btn-secondary" onClick={() => navigate(ROUTES.review)}>
               Преглед на грешките
             </button>
-            <button className="btn-link mx-auto" onClick={() => setView("dashboard")}>
+            <button className="btn-link mx-auto" onClick={() => navigate(ROUTES.dashboard)}>
               Към таблото
             </button>
           </div>

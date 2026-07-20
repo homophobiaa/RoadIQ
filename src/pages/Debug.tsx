@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
-import { useStore } from "../store";
+import { useNavigate } from "react-router-dom";
+import { ROUTES, useStore } from "../store";
 import { Logo, ConfidenceBadge, StatusBadge } from "../components/ui";
 import { CropSelector } from "../components/CropSelector";
 import { statusOf } from "../lib/corrections";
@@ -35,7 +36,8 @@ function matchFilter(q: ParsedQuestion, f: Filter): boolean {
 }
 
 export default function Debug() {
-  const { questions, setView, exportJSON, importJSON, clearAllCorrections } = useStore();
+  const { questions, exportJSON, importJSON, clearAllCorrections } = useStore();
+  const navigate = useNavigate();
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(questions[0]?.fileName ?? null);
@@ -98,7 +100,7 @@ export default function Debug() {
           >
             Изчисти корекции
           </button>
-          <button className="btn-primary" onClick={() => setView("dashboard")}>
+          <button className="btn-primary" onClick={() => navigate(ROUTES.dashboard)}>
             Към таблото
           </button>
         </div>

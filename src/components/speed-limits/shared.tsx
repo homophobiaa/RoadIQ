@@ -48,26 +48,10 @@ export function ProhibitedSign({ size = 64 }: { size?: number }) {
   );
 }
 
-/** Neutral dash sign for "—" — deliberately NOT red (not a prohibition). */
-export function DashSign({ size = 64 }: { size?: number }) {
-  return (
-    <div
-      className="grid place-items-center rounded-full border-2 border-dashed border-muted-soft bg-surface-soft"
-      style={{ width: size, height: size }}
-      aria-hidden
-    >
-      <span className="font-display leading-none text-muted" style={{ fontSize: size * 0.5 }}>
-        —
-      </span>
-    </div>
-  );
-}
-
 /** Dispatches a value to the right sign. `size` controls the badge diameter. */
 export function SpeedValueSign({ v, size = 64 }: { v: SpeedLimitValue; size?: number }) {
   if (v.type === "speed") return <RoadSignNumber value={v.value} size={size} />;
-  if (v.type === "prohibited") return <ProhibitedSign size={size} />;
-  return <DashSign size={size} />;
+  return <ProhibitedSign size={size} />;
 }
 
 // --- Road-type icons (stroke uses currentColor so active state can tint) ---
