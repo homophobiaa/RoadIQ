@@ -9,6 +9,7 @@ import Debug from "./pages/Debug";
 import CheatSheetsPage from "./pages/CheatSheetsPage";
 import SpeedLimitsPage from "./pages/SpeedLimitsPage";
 import CategoriesPage from "./pages/CategoriesPage";
+import CategoryAuditPage from "./pages/CategoryAuditPage";
 
 export default function App() {
   const location = useLocation();
@@ -27,6 +28,9 @@ export default function App() {
         <Route path={ROUTES.cheatsheets} element={<CheatSheetsPage />} />
         <Route path={ROUTES.speedLimits} element={<SpeedLimitsPage />} />
         <Route path={ROUTES.categories} element={<CategoriesPage />} />
+        {import.meta.env.DEV && (
+          <Route path="/dev/categories-audit" element={<CategoryAuditPage />} />
+        )}
         <Route path="*" element={<Navigate to={ROUTES.dashboard} replace />} />
       </Routes>
     </AnimatePresence>

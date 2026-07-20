@@ -1,14 +1,8 @@
 // "Каква е разликата?" — only compares neighbouring / commonly-confused
 // categories (never random pairs). Shows the fields that actually differ.
 
-import {
-  NEIGHBOUR_COMPARISONS,
-  getDrivingCategory,
-  type CategoryFact,
-} from "../../data/drivingCategories";
+import { NEIGHBOUR_COMPARISONS, flattenFacts, getDrivingCategory } from "../../data/drivingCategories";
 import { cx } from "../../lib/utils";
-
-const fmt = (f: CategoryFact) => (f.unit ? `${f.value} ${f.unit}` : f.value);
 
 export function NeighbourCompare({ selectedId }: { selectedId: string }) {
   const set = NEIGHBOUR_COMPARISONS.find((s) => s.includes(selectedId));
@@ -17,17 +11,19 @@ export function NeighbourCompare({ selectedId }: { selectedId: string }) {
     ReturnType<typeof getDrivingCategory>
   >[];
 
+  const memberFacts = members.map(flattenFacts);
+
   // Union of fact labels, in first-seen order.
   const labels: string[] = [];
-  for (const m of members) for (const f of m.facts) if (!labels.includes(f.label)) labels.push(f.label);
+  for (const facts of memberFacts) for (const f of facts) if (!labels.includes(f.label)) labels.push(f.label);
 
   // Keep only rows where the members differ (the useful part).
   const rows = labels
     .map((label) => ({
       label,
-      values: members.map((m) => {
-        const fs = m.facts.filter((f) => f.label === label);
-        return fs.length ? fs.map(fmt).join(" · ") : "—";
+      values: memberFacts.map((facts) => {
+        const fs = facts.filter((f) => f.label === label);
+        return fs.length ? fs.map((f) => (f.unit ? `${f.value} ${f.unit}` : f.value)).join(" · ") : "—";
       }),
     }))
     .filter((r) => new Set(r.values).size > 1);
@@ -49,8 +45,8 @@ export function NeighbourCompare({ selectedId }: { selectedId: string }) {
               m.id === selectedId ? "border-primary bg-primary/10" : "border-hairline bg-canvas",
             )}
           >
-            <span className="font-display text-title-md font-semibold text-ink">{m.label}</span>
-            <p className="mt-1 text-xs text-body">{m.shortDescription}</p>
+            <span className="font-display text-title-md font-semibold text-ink">{m.title}</span>
+            <p className="mt-1 text-xs text-body">{m.summary}</p>
           </div>
         ))}
       </div>
@@ -70,7 +66,7 @@ export function NeighbourCompare({ selectedId }: { selectedId: string }) {
                       m.id === selectedId ? "text-primary-active" : "text-ink",
                     )}
                   >
-                    {m.label}
+                    {m.title}
                   </th>
                 ))}
               </tr>

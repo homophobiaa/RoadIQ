@@ -57,7 +57,7 @@ export function CategoryQuiz({ selectedId, groupId }: { selectedId: string; grou
 
   const groupLabel = CATEGORY_GROUPS.find((g) => g.id === groupId)?.label ?? "групата";
   const scopes: { k: ScopeKind; label: string }[] = [
-    { k: "category", label: `Категория ${getDrivingCategory(selectedId)?.label ?? ""}` },
+    { k: "category", label: `Категория ${getDrivingCategory(selectedId)?.title ?? ""}` },
     { k: "group", label: groupLabel },
     { k: "all", label: "Всички" },
   ];

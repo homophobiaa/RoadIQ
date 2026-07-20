@@ -49,7 +49,7 @@ export default function CategoriesPage() {
     const q = search.trim().toLowerCase();
     if (!q) return DRIVING_CATEGORIES;
     return DRIVING_CATEGORIES.filter(
-      (c) => c.label.toLowerCase().includes(q) || c.shortDescription.toLowerCase().includes(q),
+      (c) => c.title.toLowerCase().includes(q) || c.summary.toLowerCase().includes(q),
     );
   }, [search]);
 
@@ -71,9 +71,16 @@ export default function CategoriesPage() {
       <div className="mx-auto max-w-[1200px] px-6 py-8">
         <TopNav
           right={
-            <Link className="btn-secondary" to={ROUTES.cheatsheets}>
-              ← Справочник
-            </Link>
+            <>
+              {import.meta.env.DEV && (
+                <Link className="btn-link" to="/dev/categories-audit">
+                  Одит на данните (dev)
+                </Link>
+              )}
+              <Link className="btn-secondary" to={ROUTES.cheatsheets}>
+                ← Справочник
+              </Link>
+            </>
           }
         />
 
@@ -125,7 +132,7 @@ export default function CategoriesPage() {
                               : "border-hairline bg-canvas text-body hover:bg-surface-soft",
                           )}
                         >
-                          {c.label}
+                          {c.title}
                         </button>
                       );
                     })}

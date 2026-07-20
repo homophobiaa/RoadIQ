@@ -1,14 +1,78 @@
 // Central editable dataset.
 // Legal definitions may change. Update this file only.
 // UI components must not contain duplicated category limits.
+//
+// SOURCE HANDLING — read before editing:
+// Bulgarian exam/study materials and newer EU technical type-approval rules
+// sometimes use different criteria for the same category (e.g. AM's light
+// quadricycle: BG study sources state "маса без товар до 350 kg", while the
+// newer EU technical classification — Регламент (ЕС) № 168/2013, category L6e
+// — uses "маса в готовност за движение" and adds a separate compression-ignition
+// engine-capacity limit). These are NEVER merged into one value. Each
+// VehicleVariant carries `sourceIds` pointing at the BG exam definition, and an
+// optional `sourceDivergence` string that is shown ONLY inside the expandable
+// "Източник и уточнения" section, clearly labelled as a difference — never
+// presented as if both applied simultaneously.
 
-export interface CategoryFact {
+export interface SourceRef {
+  id: string;
+  label: string;
+  jurisdiction: "BG" | "EU";
+  /** Plain-language note on what this source is used for / how current it is. */
+  effectiveContext: string;
+  /** Whether this is the definition the Bulgarian driving exam actually tests. */
+  examRelevant: boolean;
+  notes?: string[];
+}
+
+export const SOURCES: SourceRef[] = [
+  {
+    id: "bg-exam",
+    label: "Българска наредба и учебни материали за изпит за категория",
+    jurisdiction: "BG",
+    effectiveContext:
+      "Определението, използвано в това приложение като основно за подготовка за изпита в България.",
+    examRelevant: true,
+  },
+  {
+    id: "bg-zdvp-150a",
+    label: "Закон за движението по пътищата — чл. 150а",
+    jurisdiction: "BG",
+    effectiveContext: "Законова база за категориите свидетелства за управление в България.",
+    examRelevant: true,
+  },
+  {
+    id: "eu-dir-2006-126",
+    label: "Директива 2006/126/ЕО, член 4 — категории свидетелства за управление",
+    jurisdiction: "EU",
+    effectiveContext:
+      "Хармонизирани категории на ЕС, транспонирани в българското законодателство. Съвпада с определенията за изпита.",
+    examRelevant: true,
+  },
+  {
+    id: "eu-reg-168-2013",
+    label: "Регламент (ЕС) № 168/2013 — техническа класификация на превозни средства от категория L (вкл. L6e, L7e)",
+    jurisdiction: "EU",
+    effectiveContext:
+      "По-нова техническа класификация за одобряване на типа на превозното средство — не е основният текст, ползван в българските учебни материали за изпит.",
+    examRelevant: false,
+    notes: [
+      "Използва понятието „маса в готовност за движение“ вместо „маса без товар“ — двете не са едно и също число.",
+      "Добавя отделен по-висок работен обем за двигател със запалване чрез сгъстяване (compression-ignition), който не присъства в опростеното учебно определение.",
+    ],
+  },
+];
+
+export function resolveSources(ids: string[]): SourceRef[] {
+  return ids.map((id) => SOURCES.find((s) => s.id === id)).filter((s): s is SourceRef => !!s);
+}
+
+export interface VariantFact {
+  /** Complete, self-explanatory label — never a bare word like "Маса". */
   label: string;
   value: string;
   unit?: string;
   detail?: string;
-  /** Optional grouping tag so the UI can visually separate e.g. moto vs tricycle. */
-  group?: string;
 }
 
 export type CategoryGroup =
@@ -34,19 +98,38 @@ export type IllustrationType =
   | "minibus"
   | "minibusTrailer";
 
+export interface VehicleVariant {
+  id: string;
+  title: string;
+  plainDescription: string;
+  illustrationType: IllustrationType;
+  wheels?: string;
+  propulsionRules?: {
+    sparkIgnition?: string;
+    compressionIgnition?: string;
+    electricOrOther?: string;
+  };
+  /** Speed / mass / power / passenger / length / trailer / combination limits — each fully labelled. */
+  facts: VariantFact[];
+  additionalRules?: string[];
+  /** Shown ONLY inside "Източник и уточнения" — never merged into `facts`. */
+  sourceDivergence?: string;
+  sourceIds: string[];
+}
+
 export interface DrivingCategory {
   id: string;
-  label: string;
+  title: string;
   group: CategoryGroup;
-  shortDescription: string;
-  fullDefinition: string;
-  vehicleTypes: string[];
-  facts: CategoryFact[];
-  includes?: string[];
-  requires?: string[];
+  summary: string;
+  variants: VehicleVariant[];
+  /** Facts that apply identically across every variant (e.g. B1's shared power limit). */
+  sharedFacts?: VariantFact[];
+  exclusions?: string[];
+  conditionalRights?: string[];
+  includedCategories?: string[];
   notes?: string[];
-  sourceLabels: string[];
-  illustrationType: IllustrationType;
+  sourceIds: string[];
 }
 
 export const CATEGORY_GROUPS: { id: CategoryGroup; label: string; categoryIds: string[] }[] = [
@@ -57,261 +140,482 @@ export const CATEGORY_GROUPS: { id: CategoryGroup; label: string; categoryIds: s
   { id: "passenger", label: "Пътнически", categoryIds: ["D1", "D1E", "D", "DE"] },
 ];
 
-const SRC_150A = "Закон за движението по пътищата — чл. 150а";
-const SRC_DIR = "Директива 2006/126/ЕО — категории свидетелства за управление";
-
 export const DRIVING_CATEGORIES: DrivingCategory[] = [
+  // ---------------------------------------------------------------------
+  // AM — AUDITED: three distinct vehicle types, not one blended entry.
+  // ---------------------------------------------------------------------
   {
     id: "AM",
-    label: "AM",
+    title: "AM",
     group: "mopeds",
-    shortDescription: "Категория AM е за мотопеди и леки четириколесни превозни средства.",
-    fullDefinition:
-      "С категория AM можеш да управляваш двуколесни и триколесни мотопеди с максимална конструктивна скорост до 45 km/h, както и леки четириколесни превозни средства. Превозни средства с максимална конструктивна скорост до 25 km/h не се смятат за мотопеди и остават извън тази категория.",
-    vehicleTypes: ["Мотопед (2 или 3 колела)", "Леко четириколесно превозно средство"],
-    facts: [
-      { label: "Максимална конструктивна скорост", value: "45", unit: "km/h" },
-      { label: "Брой колела", value: "2 или 3" },
-      { label: "Категорията включва и", value: "леки четириколесни превозни средства" },
+    summary:
+      "Категория AM обхваща три различни вида превозни средства — двуколесни мотопеди, триколесни мотопеди и леки четириколесни превозни средства. Всеки вид има собствени технически ограничения.",
+    variants: [
+      {
+        id: "am-2wheel",
+        title: "Двуколесен мотопед",
+        plainDescription: "Мотопед с две колела.",
+        illustrationType: "moped",
+        wheels: "2",
+        propulsionRules: {
+          sparkIgnition: "работен обем не повече от 50 cm³",
+          electricOrOther: "максимална нетна мощност не повече от 4 kW",
+        },
+        facts: [{ label: "Максимална конструктивна скорост", value: "45", unit: "km/h" }],
+        additionalRules: [
+          "Превозни средства с максимална конструктивна скорост до 25 km/h не се смятат за мотопеди по смисъла на тази категория.",
+        ],
+        sourceIds: ["bg-exam", "eu-dir-2006-126"],
+      },
+      {
+        id: "am-3wheel",
+        title: "Триколесен мотопед",
+        plainDescription: "Мотопед с три колела.",
+        illustrationType: "motorTricycle",
+        wheels: "3",
+        propulsionRules: {
+          sparkIgnition: "работен обем не повече от 50 cm³",
+          electricOrOther: "максимална нетна мощност не повече от 4 kW",
+        },
+        facts: [{ label: "Максимална конструктивна скорост", value: "45", unit: "km/h" }],
+        additionalRules: [
+          "Превозни средства с максимална конструктивна скорост до 25 km/h не се смятат за мотопеди по смисъла на тази категория.",
+        ],
+        sourceIds: ["bg-exam", "eu-dir-2006-126"],
+      },
+      {
+        id: "am-quadricycle",
+        title: "Леко четириколесно превозно средство",
+        plainDescription:
+          "Лека четириколка (микроколичка), различна и от двата вида мотопеди по-горе.",
+        illustrationType: "quadricycle",
+        wheels: "4",
+        propulsionRules: {
+          sparkIgnition: "работен обем не повече от 50 cm³",
+          electricOrOther: "максимална нетна мощност не повече от 4 kW",
+        },
+        facts: [
+          { label: "Максимална конструктивна скорост", value: "45", unit: "km/h" },
+          {
+            label: "Маса без товар",
+            value: "до 350",
+            unit: "kg",
+            detail: "по определението от българските учебни материали за изпит",
+          },
+        ],
+        additionalRules: [
+          "При електрическите превозни средства масата на тяговите батерии не се включва в масата без товар.",
+        ],
+        sourceDivergence:
+          "Регламент (ЕС) № 168/2013 определя това превозно средство като категория L6e и използва „маса в готовност за движение“ вместо „маса без товар“ — двете стойности не са пряко сравними. Освен това регламентът допуска и двигател със запалване чрез сгъстяване с работен обем до 500 cm³, каквото ограничение не се среща в опростеното учебно определение за изпита.",
+        sourceIds: ["bg-exam"],
+      },
     ],
-    notes: ["Превозни средства с максимална конструктивна скорост до 25 km/h не влизат в тази категория."],
-    sourceLabels: [SRC_150A, SRC_DIR],
-    illustrationType: "moped",
+    sourceIds: ["bg-exam", "bg-zdvp-150a", "eu-dir-2006-126"],
   },
+
+  // ---------------------------------------------------------------------
+  // A1
+  // ---------------------------------------------------------------------
   {
     id: "A1",
-    label: "A1",
+    title: "A1",
     group: "motorcycles",
-    shortDescription: "Категория A1 е за леки мотоциклети до 125 cm³ и моторни триколки с ограничена мощност.",
-    fullDefinition:
-      "Категория A1 позволява управление на лек мотоциклет с работен обем до 125 cm³, мощност до 11 kW и съотношение мощност/маса до 0,1 kW/kg. Освен мотоциклети, категорията включва и моторни триколки с мощност до 15 kW.",
-    vehicleTypes: ["Лек мотоциклет", "Моторна триколка"],
-    facts: [
-      { label: "Работен обем", value: "125", unit: "cm³", group: "Мотоциклет" },
-      { label: "Мощност", value: "11", unit: "kW", group: "Мотоциклет" },
-      { label: "Съотношение мощност/маса", value: "0,1", unit: "kW/kg", group: "Мотоциклет" },
-      { label: "Мощност", value: "15", unit: "kW", group: "Моторна триколка" },
+    summary:
+      "Категория A1 включва два отделни вида превозни средства — леки мотоциклети и моторни триколки, всеки с различни технически ограничения.",
+    variants: [
+      {
+        id: "a1-motorcycle",
+        title: "Лек мотоциклет",
+        plainDescription: "Мотоциклет с ограничен обем на двигателя, мощност и съотношение мощност/маса.",
+        illustrationType: "motorcycle",
+        wheels: "2",
+        facts: [
+          { label: "Максимален работен обем при двигател с вътрешно горене", value: "125", unit: "cm³" },
+          { label: "Максимална нетна мощност", value: "11", unit: "kW" },
+          { label: "Максимално съотношение мощност/маса", value: "0,1", unit: "kW/kg" },
+        ],
+        sourceIds: ["bg-exam", "eu-dir-2006-126"],
+      },
+      {
+        id: "a1-tricycle",
+        title: "Моторна триколка",
+        plainDescription: "Моторно превозно средство с три колела, с ограничена мощност.",
+        illustrationType: "motorTricycle",
+        wheels: "3",
+        facts: [{ label: "Максимална нетна мощност на моторната триколка", value: "15", unit: "kW" }],
+        sourceIds: ["bg-exam", "eu-dir-2006-126"],
+      },
     ],
-    notes: ["При моторните триколки максималната мощност е 15 kW."],
-    sourceLabels: [SRC_150A, SRC_DIR],
-    illustrationType: "motorcycle",
+    sourceIds: ["bg-exam", "bg-zdvp-150a", "eu-dir-2006-126"],
   },
+
+  // ---------------------------------------------------------------------
+  // A2
+  // ---------------------------------------------------------------------
   {
     id: "A2",
-    label: "A2",
+    title: "A2",
     group: "motorcycles",
-    shortDescription: "Категория A2 е за мотоциклети със средна мощност.",
-    fullDefinition:
-      "Мотоциклетът може да бъде с мощност до 35 kW и със съотношение мощност/маса до 0,2 kW/kg. Той не трябва да е преработен от модел с повече от два пъти по-висока мощност — това ограничение важи за произхода на мотоциклета, не за самия него.",
-    vehicleTypes: ["Мотоциклет със средна мощност"],
-    facts: [
-      { label: "Мощност", value: "35", unit: "kW" },
-      { label: "Съотношение мощност/маса", value: "0,2", unit: "kW/kg" },
+    summary: "Категория A2 е за мотоциклети със средна мощност — междинна стъпка преди пълната категория A.",
+    variants: [
+      {
+        id: "a2-motorcycle",
+        title: "Мотоциклет със средна мощност",
+        plainDescription: "Мотоциклет с по-висока мощност от A1, но все още с горна граница.",
+        illustrationType: "motorcycle",
+        wheels: "2",
+        facts: [
+          { label: "Максимална нетна мощност", value: "35", unit: "kW" },
+          { label: "Максимално съотношение мощност/маса", value: "0,2", unit: "kW/kg" },
+        ],
+        additionalRules: [
+          "Мотоциклетът не трябва да е получен от модел с повече от два пъти по-висока мощност от неговата.",
+        ],
+        sourceIds: ["bg-exam", "eu-dir-2006-126"],
+      },
     ],
-    notes: [
-      "Мотоциклетът не може да е преработен от модел с повече от два пъти по-висока мощност от неговата.",
-    ],
-    sourceLabels: [SRC_150A, SRC_DIR],
-    illustrationType: "motorcycle",
+    sourceIds: ["bg-exam", "bg-zdvp-150a", "eu-dir-2006-126"],
   },
+
+  // ---------------------------------------------------------------------
+  // A
+  // ---------------------------------------------------------------------
   {
     id: "A",
-    label: "A",
+    title: "A",
     group: "motorcycles",
-    shortDescription: "Категория A позволява управление на мотоциклети без ограниченията за мощност при A1 и A2.",
-    fullDefinition:
-      "Категорията включва мотоциклети със или без кош, както и моторни триколесни превозни средства. За разлика от A1 и A2, тук няма горна граница за мощността на мотоциклета.",
-    vehicleTypes: ["Мотоциклет", "Мотоциклет с кош", "Моторна триколка"],
-    facts: [
-      { label: "Ограничение за мощност", value: "няма", detail: "за разлика от A1 и A2" },
-      { label: "Вид", value: "със или без кош" },
+    summary:
+      "Категория A е за мотоциклети без горна граница за мощност, както и за мотоциклети с кош и по-мощни моторни триколки.",
+    variants: [
+      {
+        id: "a-motorcycle",
+        title: "Мотоциклет (със или без кош)",
+        plainDescription: "Мотоциклет без ограничението за мощност, което важи при A1 и A2.",
+        illustrationType: "motorcycle",
+        wheels: "2",
+        facts: [
+          { label: "Максимална нетна мощност", value: "няма ограничение", detail: "за разлика от категории A1 и A2" },
+        ],
+        sourceIds: ["bg-exam", "eu-dir-2006-126"],
+      },
+      {
+        id: "a-tricycle",
+        title: "Моторна триколка с по-висока мощност",
+        plainDescription: "Моторна триколка, чиято мощност надвишава границата за категория A1.",
+        illustrationType: "motorTricycle",
+        wheels: "3",
+        facts: [
+          { label: "Изисквана мощност", value: "над 15", unit: "kW", detail: "над границата за A1" },
+        ],
+        sourceIds: ["bg-exam", "eu-dir-2006-126"],
+      },
     ],
-    notes: ["Липсата на ограничение важи само за мощността на мотоциклета — не отменя другите изисквания на категорията."],
-    sourceLabels: [SRC_150A, SRC_DIR],
-    illustrationType: "motorcycle",
+    notes: [
+      "Липсата на ограничение за мощност важи само за мотоциклетите — не отменя другите изисквания на категорията.",
+    ],
+    sourceIds: ["bg-exam", "bg-zdvp-150a", "eu-dir-2006-126"],
   },
+
+  // ---------------------------------------------------------------------
+  // B1 — AUDITED: passenger vs goods variant, shared power fact.
+  // ---------------------------------------------------------------------
   {
     id: "B1",
-    label: "B1",
+    title: "B1",
     group: "lightVehicles",
-    shortDescription: "Категория B1 е за по-тежки четириколесни превозни средства, например някои микроколи.",
-    fullDefinition:
-      "Превозното средство може да има маса без товар до 400 kg, или до 550 kg, когато е предназначено за превоз на товари. Максималната нетна мощност е 15 kW. Категорията е различна от леките четириколесни превозни средства, включени в AM.",
-    vehicleTypes: ["Четириколесно превозно средство (микроколa)"],
-    facts: [
-      { label: "Маса без товар", value: "400", unit: "kg" },
-      { label: "Маса без товар при превоз на товари", value: "550", unit: "kg" },
-      { label: "Максимална нетна мощност", value: "15", unit: "kW" },
+    summary:
+      "Категория B1 е за по-тежки четириколесни превозни средства — различни от леките четириколки в AM — с отделни ограничения според предназначението им.",
+    variants: [
+      {
+        id: "b1-passenger",
+        title: "За превоз на пътници",
+        plainDescription: "Четириколесно превозно средство, предназначено за возене на хора.",
+        illustrationType: "quadricycle",
+        wheels: "4",
+        facts: [{ label: "Маса без товар при превоз на пътници", value: "до 400", unit: "kg" }],
+        sourceIds: ["bg-exam", "eu-dir-2006-126"],
+      },
+      {
+        id: "b1-goods",
+        title: "За превоз на товари",
+        plainDescription: "Четириколесно превозно средство, предназначено за превоз на стоки.",
+        illustrationType: "quadricycle",
+        wheels: "4",
+        facts: [{ label: "Маса без товар при превоз на товари", value: "до 550", unit: "kg" }],
+        sourceIds: ["bg-exam", "eu-dir-2006-126"],
+      },
     ],
+    sharedFacts: [{ label: "Максимална нетна мощност", value: "до 15", unit: "kW" }],
     notes: [
-      "При електрическите превозни средства масата на батериите не се включва в масата без товар.",
-      "B1 не е двуколесна или триколесна категория — превозните средства тук имат четири колела и по-висока маса от леките четириколесни превозни средства в AM.",
+      "При електрическите превозни средства масата на тяговите батерии не се включва в масата без товар.",
+      "B1 не е двуколесна или триколесна категория — превозните средства тук имат четири колела и по-висока допустима маса от леките четириколки в AM.",
     ],
-    sourceLabels: [SRC_150A, SRC_DIR],
-    illustrationType: "quadricycle",
+    sourceIds: ["bg-exam", "bg-zdvp-150a", "eu-dir-2006-126"],
   },
+
+  // ---------------------------------------------------------------------
+  // B
+  // ---------------------------------------------------------------------
   {
     id: "B",
-    label: "B",
+    title: "B",
     group: "lightVehicles",
-    shortDescription: "Категория B е за леки автомобили и други моторни превозни средства с допустима максимална маса до 3 500 kg.",
-    fullDefinition:
-      "Превозното средство може да има най-много 8 места за пътници, без мястото на водача, и допустима максимална маса до 3 500 kg. С него може да се тегли ремарке с допустима максимална маса до 750 kg. При определени условия категория B позволява и състав с по-тежко ремарке, когато общата допустима максимална маса на състава не надвишава 4 250 kg — за това може да са необходими допълнително обучение, изпит или съответен код в свидетелството.",
-    vehicleTypes: ["Лек автомобил", "Друго моторно превозно средство до 3 500 kg"],
-    facts: [
-      { label: "Допустима максимална маса", value: "3 500", unit: "kg" },
-      { label: "Пътнически места", value: "до 8", detail: "без водача" },
-      { label: "Ремарке", value: "до 750", unit: "kg" },
+    summary: "Категория B е за леки автомобили и други моторни превозни средства с допустима максимална маса до 3 500 kg.",
+    variants: [
+      {
+        id: "b-vehicle",
+        title: "Основно превозно средство",
+        plainDescription: "Лек автомобил или друго моторно превозно средство до 3 500 kg.",
+        illustrationType: "carTrailer",
+        facts: [
+          { label: "Допустима максимална маса", value: "до 3 500", unit: "kg" },
+          { label: "Пътнически места, без мястото на водача", value: "до 8" },
+          { label: "Ремарке или полуремарке с допустима максимална маса", value: "до 750", unit: "kg" },
+        ],
+        sourceIds: ["bg-exam", "eu-dir-2006-126"],
+      },
     ],
-    notes: [
-      "Състав с по-тежко ремарке (над 750 kg) е допустим, ако общата маса на състава не надвишава 4 250 kg, при спазване на изискванията за допълнително обучение, изпит или код в свидетелството.",
+    conditionalRights: [
+      "Позволен е състав с по-тежко ремарке (над 750 kg), ако общата допустима максимална маса на състава не надвишава 4 250 kg — при спазване на изискванията за допълнително обучение, изпит или съответен код в свидетелството за управление.",
     ],
-    sourceLabels: [SRC_150A, SRC_DIR],
-    illustrationType: "carTrailer",
+    sourceIds: ["bg-exam", "bg-zdvp-150a", "eu-dir-2006-126"],
   },
+
+  // ---------------------------------------------------------------------
+  // BE
+  // ---------------------------------------------------------------------
   {
     id: "BE",
-    label: "BE",
+    title: "BE",
     group: "lightVehicles",
-    shortDescription: "Категория BE позволява автомобил от категория B да тегли по-тежко ремарке или полуремарке.",
-    fullDefinition:
-      "Автомобилът трябва да е от категория B. Ремаркето или полуремаркето може да има допустима максимална маса до 3 500 kg.",
-    vehicleTypes: ["Автомобил от категория B с ремарке или полуремарке"],
-    facts: [
-      { label: "Автомобил", value: "категория B" },
-      { label: "Ремарке или полуремарке", value: "до 3 500", unit: "kg" },
+    summary: "Категория BE позволява автомобил от категория B да тегли по-тежко ремарке или полуремарке.",
+    variants: [
+      {
+        id: "be-combo",
+        title: "Автомобил категория B с ремарке",
+        plainDescription: "Състав от лек автомобил (категория B) и ремарке или полуремарке.",
+        illustrationType: "carTrailer",
+        facts: [{ label: "Ремарке или полуремарке с допустима максимална маса", value: "до 3 500", unit: "kg" }],
+        sourceIds: ["bg-exam", "eu-dir-2006-126"],
+      },
     ],
-    sourceLabels: [SRC_150A, SRC_DIR],
-    illustrationType: "carTrailer",
+    includedCategories: ["B"],
+    sourceIds: ["bg-exam", "bg-zdvp-150a", "eu-dir-2006-126"],
   },
+
+  // ---------------------------------------------------------------------
+  // C1
+  // ---------------------------------------------------------------------
   {
     id: "C1",
-    label: "C1",
+    title: "C1",
     group: "goods",
-    shortDescription: "Категория C1 е за товарни и други моторни превозни средства с маса над 3 500 kg, но не повече от 7 500 kg.",
-    fullDefinition:
-      "Превозното средство може да има до 8 места за пътници, без мястото на водача, и да тегли ремарке до 750 kg. Категорията не включва автобусите от категории D1 и D.",
-    vehicleTypes: ["Среден товарен автомобил"],
-    facts: [
-      { label: "Допустима максимална маса", value: "3 500–7 500", unit: "kg" },
-      { label: "Пътнически места", value: "до 8", detail: "без водача" },
-      { label: "Ремарке", value: "до 750", unit: "kg" },
+    summary: "Категория C1 е за товарни и други моторни превозни средства с маса над 3 500 kg, но не повече от 7 500 kg.",
+    variants: [
+      {
+        id: "c1-vehicle",
+        title: "Основно превозно средство",
+        plainDescription: "Среден товарен автомобил.",
+        illustrationType: "truckMedium",
+        facts: [
+          { label: "Допустима максимална маса", value: "над 3 500, до 7 500", unit: "kg" },
+          { label: "Пътнически места, без мястото на водача", value: "до 8" },
+          { label: "Ремарке с допустима максимална маса", value: "до 750", unit: "kg" },
+        ],
+        sourceIds: ["bg-exam", "eu-dir-2006-126"],
+      },
     ],
-    notes: ["Автобусите от категории D1 и D не влизат в C1."],
-    sourceLabels: [SRC_150A, SRC_DIR],
-    illustrationType: "truckMedium",
+    exclusions: ["Автобусите от категории D1 и D."],
+    sourceIds: ["bg-exam", "bg-zdvp-150a", "eu-dir-2006-126"],
   },
+
+  // ---------------------------------------------------------------------
+  // C1E — AUDITED: two clearly separated combinations, never merged.
+  // ---------------------------------------------------------------------
   {
     id: "C1E",
-    label: "C1E",
+    title: "C1E",
     group: "goods",
-    shortDescription: "Категория C1E позволява състав с превозно средство C1, или определен по-тежък състав с автомобил от категория B.",
-    fullDefinition:
-      "Категория C1E позволява управление на два отделни вида състав. Първата възможност е превозно средство от категория C1 с ремарке или полуремарке над 750 kg, като общата допустима максимална маса на състава е до 12 000 kg. Втората възможност е автомобил от категория B с ремарке или полуремарке над 3 500 kg, също с обща допустима максимална маса до 12 000 kg.",
-    vehicleTypes: ["Състав C1 с ремарке", "Състав B с по-тежко ремарке"],
-    facts: [
-      { label: "Теглещо превозно средство", value: "C1", group: "Възможност 1" },
-      { label: "Ремарке или полуремарке", value: "над 750", unit: "kg", group: "Възможност 1" },
-      { label: "Обща допустима максимална маса", value: "до 12 000", unit: "kg", group: "Възможност 1" },
-      { label: "Теглещо превозно средство", value: "B", group: "Възможност 2" },
-      { label: "Ремарке или полуремарке", value: "над 3 500", unit: "kg", group: "Възможност 2" },
-      { label: "Обща допустима максимална маса", value: "до 12 000", unit: "kg", group: "Възможност 2" },
+    summary:
+      "Категория C1E позволява управление на два отделни вида състав: с теглещо превозно средство от категория C1, или — при по-строги условия — с автомобил от категория B.",
+    variants: [
+      {
+        id: "c1e-with-c1",
+        title: "Товарен автомобил категория C1 с ремарке",
+        plainDescription: "Състав от превозно средство C1 и ремарке или полуремарке над 750 kg.",
+        illustrationType: "truckMediumTrailer",
+        facts: [
+          { label: "Ремарке или полуремарке с допустима максимална маса", value: "над 750", unit: "kg" },
+          { label: "Обща допустима максимална маса на състава", value: "до 12 000", unit: "kg" },
+        ],
+        sourceIds: ["bg-exam", "eu-dir-2006-126"],
+      },
+      {
+        id: "c1e-with-b",
+        title: "Лек автомобил категория B с тежко ремарке",
+        plainDescription:
+          "По-рядко използвана възможност: автомобил от категория B с ремарке, по-тежко от обичайното за BE.",
+        illustrationType: "carTrailer",
+        facts: [
+          { label: "Ремарке или полуремарке с допустима максимална маса", value: "над 3 500", unit: "kg" },
+          { label: "Обща допустима максимална маса на състава", value: "до 12 000", unit: "kg" },
+        ],
+        sourceIds: ["bg-exam", "eu-dir-2006-126"],
+      },
     ],
-    sourceLabels: [SRC_150A, SRC_DIR],
-    illustrationType: "truckMediumTrailer",
+    includedCategories: ["C1", "B"],
+    sourceIds: ["bg-exam", "bg-zdvp-150a", "eu-dir-2006-126"],
   },
+
+  // ---------------------------------------------------------------------
+  // C
+  // ---------------------------------------------------------------------
   {
     id: "C",
-    label: "C",
+    title: "C",
     group: "goods",
-    shortDescription: "Категория C е за моторни превозни средства с допустима максимална маса над 3 500 kg.",
-    fullDefinition:
-      "Превозното средство може да има до 8 места за пътници, без мястото на водача, и да тегли ремарке до 750 kg. Категорията не включва автобусите от категории D1 и D.",
-    vehicleTypes: ["Тежък товарен автомобил"],
-    facts: [
-      { label: "Допустима максимална маса", value: "над 3 500", unit: "kg" },
-      { label: "Пътнически места", value: "до 8", detail: "без водача" },
-      { label: "Ремарке", value: "до 750", unit: "kg" },
+    summary: "Категория C е за моторни превозни средства с допустима максимална маса над 3 500 kg.",
+    variants: [
+      {
+        id: "c-vehicle",
+        title: "Основно превозно средство",
+        plainDescription: "Тежък товарен автомобил.",
+        illustrationType: "truckHeavy",
+        facts: [
+          { label: "Допустима максимална маса", value: "над 3 500", unit: "kg" },
+          { label: "Пътнически места, без мястото на водача", value: "до 8" },
+          { label: "Ремарке с допустима максимална маса", value: "до 750", unit: "kg" },
+        ],
+        sourceIds: ["bg-exam", "eu-dir-2006-126"],
+      },
     ],
-    notes: ["Автобусите от категории D1 и D не влизат в C."],
-    sourceLabels: [SRC_150A, SRC_DIR],
-    illustrationType: "truckHeavy",
+    exclusions: ["Автобусите от категории D1 и D."],
+    sourceIds: ["bg-exam", "bg-zdvp-150a", "eu-dir-2006-126"],
   },
+
+  // ---------------------------------------------------------------------
+  // CE
+  // ---------------------------------------------------------------------
   {
     id: "CE",
-    label: "CE",
+    title: "CE",
     group: "goods",
-    shortDescription: "Категория CE позволява превозно средство от категория C да тегли ремарке или полуремарке над 750 kg.",
-    fullDefinition:
-      "Автомобилът трябва да е от категория C. Ремаркето или полуремаркето трябва да има допустима максимална маса над 750 kg.",
-    vehicleTypes: ["Автомобил от категория C с ремарке или полуремарке"],
-    facts: [
-      { label: "Автомобил", value: "категория C" },
-      { label: "Ремарке или полуремарке", value: "над 750", unit: "kg" },
+    summary: "Категория CE позволява превозно средство от категория C да тегли ремарке или полуремарке над 750 kg.",
+    variants: [
+      {
+        id: "ce-combo",
+        title: "Автомобил категория C с ремарке",
+        plainDescription: "Състав от тежък товарен автомобил и ремарке или полуремарке.",
+        illustrationType: "truckHeavyTrailer",
+        facts: [{ label: "Ремарке или полуремарке с допустима максимална маса", value: "над 750", unit: "kg" }],
+        additionalRules: ["За разлика от C1E, тук няма горна граница за общата маса на състава."],
+        sourceIds: ["bg-exam", "eu-dir-2006-126"],
+      },
     ],
-    sourceLabels: [SRC_150A, SRC_DIR],
-    illustrationType: "truckHeavyTrailer",
+    includedCategories: ["C"],
+    sourceIds: ["bg-exam", "bg-zdvp-150a", "eu-dir-2006-126"],
   },
+
+  // ---------------------------------------------------------------------
+  // D1
+  // ---------------------------------------------------------------------
   {
     id: "D1",
-    label: "D1",
+    title: "D1",
     group: "passenger",
-    shortDescription: "Категория D1 е за по-малки автобуси и други превозни средства за превоз на до 16 пътници.",
-    fullDefinition:
-      "Превозното средство може да има до 16 места за пътници, без мястото на водача, и максимална дължина до 8 m. Може да тегли ремарке до 750 kg.",
-    vehicleTypes: ["Малък автобус", "Микробус"],
-    facts: [
-      { label: "Пътнически места", value: "до 16", detail: "без водача" },
-      { label: "Максимална дължина", value: "8", unit: "m" },
-      { label: "Ремарке", value: "до 750", unit: "kg" },
+    summary: "Категория D1 е за по-малки автобуси и други превозни средства за превоз на до 16 пътници.",
+    variants: [
+      {
+        id: "d1-vehicle",
+        title: "Основно превозно средство",
+        plainDescription: "Малък автобус или микробус.",
+        illustrationType: "minibus",
+        facts: [
+          { label: "Пътнически места, без мястото на водача", value: "до 16" },
+          { label: "Максимална дължина на превозното средство", value: "8", unit: "m" },
+          { label: "Ремарке с допустима максимална маса", value: "до 750", unit: "kg" },
+        ],
+        sourceIds: ["bg-exam", "eu-dir-2006-126"],
+      },
     ],
-    sourceLabels: [SRC_150A, SRC_DIR],
-    illustrationType: "minibus",
+    sourceIds: ["bg-exam", "bg-zdvp-150a", "eu-dir-2006-126"],
   },
+
+  // ---------------------------------------------------------------------
+  // D1E
+  // ---------------------------------------------------------------------
   {
     id: "D1E",
-    label: "D1E",
+    title: "D1E",
     group: "passenger",
-    shortDescription: "Категория D1E позволява превозно средство от категория D1 да тегли ремарке над 750 kg.",
-    fullDefinition:
-      "Превозното средство трябва да е от категория D1. Ремаркето трябва да има допустима максимална маса над 750 kg.",
-    vehicleTypes: ["Микробус от категория D1 с ремарке"],
-    facts: [
-      { label: "Превозно средство", value: "категория D1" },
-      { label: "Ремарке", value: "над 750", unit: "kg" },
+    summary: "Категория D1E позволява превозно средство от категория D1 да тегли ремарке над 750 kg.",
+    variants: [
+      {
+        id: "d1e-combo",
+        title: "Микробус категория D1 с ремарке",
+        plainDescription: "Състав от малък автобус и ремарке.",
+        illustrationType: "minibusTrailer",
+        facts: [
+          { label: "Ремарке с допустима максимална маса", value: "над 750", unit: "kg" },
+          { label: "Обща допустима максимална маса на състава", value: "до 12 000", unit: "kg" },
+        ],
+        additionalRules: ["Ремаркето не може да се използва за превоз на пътници."],
+        sourceIds: ["bg-exam", "eu-dir-2006-126"],
+      },
     ],
-    sourceLabels: [SRC_150A, SRC_DIR],
-    illustrationType: "minibusTrailer",
+    includedCategories: ["D1"],
+    sourceIds: ["bg-exam", "bg-zdvp-150a", "eu-dir-2006-126"],
   },
+
+  // ---------------------------------------------------------------------
+  // D
+  // ---------------------------------------------------------------------
   {
     id: "D",
-    label: "D",
+    title: "D",
     group: "passenger",
-    shortDescription: "Категория D е за автобуси и други превозни средства, проектирани за превоз на повече от 8 пътници.",
-    fullDefinition:
-      "Броят на пътниците се изчислява без мястото на водача. Превозното средство може да тегли ремарке до 750 kg.",
-    vehicleTypes: ["Автобус"],
-    facts: [
-      { label: "Пътнически места", value: "над 8", detail: "без водача" },
-      { label: "Ремарке", value: "до 750", unit: "kg" },
+    summary: "Категория D е за автобуси и други превозни средства, проектирани за превоз на повече от 8 пътници.",
+    variants: [
+      {
+        id: "d-vehicle",
+        title: "Основно превозно средство",
+        plainDescription: "Автобус.",
+        illustrationType: "bus",
+        facts: [
+          { label: "Пътнически места, без мястото на водача", value: "над 8" },
+          { label: "Ремарке с допустима максимална маса", value: "до 750", unit: "kg" },
+        ],
+        sourceIds: ["bg-exam", "eu-dir-2006-126"],
+      },
     ],
-    sourceLabels: [SRC_150A, SRC_DIR],
-    illustrationType: "bus",
+    sourceIds: ["bg-exam", "bg-zdvp-150a", "eu-dir-2006-126"],
   },
+
+  // ---------------------------------------------------------------------
+  // DE
+  // ---------------------------------------------------------------------
   {
     id: "DE",
-    label: "DE",
+    title: "DE",
     group: "passenger",
-    shortDescription: "Категория DE позволява превозно средство от категория D да тегли ремарке над 750 kg.",
-    fullDefinition:
-      "Превозното средство трябва да е от категория D. Ремаркето трябва да има допустима максимална маса над 750 kg.",
-    vehicleTypes: ["Автобус от категория D с ремарке"],
-    facts: [
-      { label: "Превозно средство", value: "категория D" },
-      { label: "Ремарке", value: "над 750", unit: "kg" },
+    summary: "Категория DE позволява превозно средство от категория D да тегли ремарке над 750 kg.",
+    variants: [
+      {
+        id: "de-combo",
+        title: "Автобус категория D с ремарке",
+        plainDescription: "Състав от автобус и ремарке.",
+        illustrationType: "busTrailer",
+        facts: [{ label: "Ремарке с допустима максимална маса", value: "над 750", unit: "kg" }],
+        additionalRules: [
+          "Ремаркето не може да се използва за превоз на пътници.",
+          "За разлика от D1E, тук няма горна граница за общата маса на състава.",
+        ],
+        sourceIds: ["bg-exam", "eu-dir-2006-126"],
+      },
     ],
-    sourceLabels: [SRC_150A, SRC_DIR],
-    illustrationType: "busTrailer",
+    includedCategories: ["D"],
+    sourceIds: ["bg-exam", "bg-zdvp-150a", "eu-dir-2006-126"],
   },
 ];
 
@@ -323,6 +627,29 @@ export function getDrivingCategory(id: string): DrivingCategory | undefined {
 }
 
 export const ALL_CATEGORY_IDS = DRIVING_CATEGORIES.map((c) => c.id);
+
+/** First variant's illustration — used for compact previews (hub cards, chips). */
+export function primaryIllustration(cat: DrivingCategory): IllustrationType {
+  return cat.variants[0]?.illustrationType ?? "car";
+}
+
+/**
+ * Flattens a category's facts for display/comparison. When a category has more
+ * than one variant, each fact label is prefixed with its variant title so
+ * "маса без товар при превоз на пътници" and "...при превоз на товари" are
+ * never collapsed into one ambiguous row.
+ */
+export function flattenFacts(cat: DrivingCategory): VariantFact[] {
+  const multi = cat.variants.length > 1;
+  const out: VariantFact[] = [];
+  for (const v of cat.variants) {
+    for (const f of v.facts) {
+      out.push(multi ? { ...f, label: `${v.title} — ${f.label}` } : f);
+    }
+  }
+  if (cat.sharedFacts) out.push(...cat.sharedFacts);
+  return out;
+}
 
 // Neighbouring / commonly-confused comparisons (Part 9). Only these are allowed.
 export const NEIGHBOUR_COMPARISONS: string[][] = [
@@ -359,18 +686,19 @@ const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
 export function generateCategoryQuestion(scopeIds: string[]): CategoryQuizQuestion {
   const pool = DRIVING_CATEGORIES.filter((c) => scopeIds.includes(c.id));
   const cats = pool.length ? pool : DRIVING_CATEGORIES;
-
-  // Question A: "which category matches this short description?"
-  // Question B: "what is fact X for category Y?" using a concrete fact.
-  const useFact = Math.random() < 0.6;
   const cat = pick(cats);
 
-  if (useFact && cat.facts.length) {
-    const fact = pick(cat.facts);
+  const allFacts = flattenFacts(cat);
+  const useFact = Math.random() < 0.6 && allFacts.length > 0;
+
+  if (useFact) {
+    const fact = pick(allFacts);
     const factText = fact.unit ? `${fact.value} ${fact.unit}` : fact.value;
-    const prompt = `Какъв е показателят „${fact.label}“ при категория ${cat.label}?`;
+    const prompt = `Какъв е показателят „${fact.label}“ при категория ${cat.title}?`;
     const others = DRIVING_CATEGORIES.flatMap((c) =>
-      c.facts.filter((f) => f.label === fact.label).map((f) => (f.unit ? `${f.value} ${f.unit}` : f.value)),
+      flattenFacts(c)
+        .filter((f) => f.label === fact.label)
+        .map((f) => (f.unit ? `${f.value} ${f.unit}` : f.value)),
     );
     const distractSet = new Set<string>([factText, ...shuffle(others)]);
     const choices = shuffle(Array.from(distractSet)).slice(0, 4);
@@ -378,8 +706,72 @@ export function generateCategoryQuestion(scopeIds: string[]): CategoryQuizQuesti
     return { prompt, choices: shuffle(choices), answer: factText };
   }
 
-  const prompt = `Коя категория отговаря на описанието: „${cat.shortDescription}“?`;
-  const answer = cat.label;
-  const distract = shuffle(DRIVING_CATEGORIES.filter((c) => c.id !== cat.id)).slice(0, 3).map((c) => c.label);
+  const prompt = `Коя категория отговаря на описанието: „${cat.summary}“?`;
+  const answer = cat.title;
+  const distract = shuffle(DRIVING_CATEGORIES.filter((c) => c.id !== cat.id)).slice(0, 3).map((c) => c.title);
   return { prompt, choices: shuffle([answer, ...distract]), answer };
+}
+
+// ---------------------------------------------------------------------------
+// Data audit — completeness + internal consistency check for every category.
+// Surfaced in the dev-only audit view (src/pages/CategoryAuditPage.tsx).
+// This catches missing/contradictory DATA ENTRY, not legal accuracy — the
+// per-category facts above were individually reviewed against BG exam sources
+// and the EU directive before being written; this function is a safety net
+// against future edits, not a substitute for that review.
+// ---------------------------------------------------------------------------
+
+export interface AuditWarning {
+  categoryId: string;
+  severity: "error" | "warning";
+  message: string;
+}
+
+export function auditCategory(cat: DrivingCategory): AuditWarning[] {
+  const warnings: AuditWarning[] = [];
+  const push = (severity: AuditWarning["severity"], message: string) =>
+    warnings.push({ categoryId: cat.id, severity, message });
+
+  if (cat.sourceIds.length === 0) push("error", "Категорията няма посочен източник.");
+  if (cat.variants.length === 0) {
+    push("error", "Категорията няма нито един вариант превозно средство.");
+    return warnings;
+  }
+
+  for (const v of cat.variants) {
+    const hasContent =
+      v.facts.length > 0 || !!v.propulsionRules || (v.additionalRules?.length ?? 0) > 0;
+    if (!hasContent) push("error", `Вариант „${v.title}“ няма никакви технически данни.`);
+    if (v.sourceIds.length === 0) push("warning", `Вариант „${v.title}“ няма посочен източник.`);
+
+    // Internal contradiction check: same exact label appearing twice with a
+    // different value inside the same variant.
+    const seen = new Map<string, string>();
+    for (const f of v.facts) {
+      const key = f.label;
+      const val = f.unit ? `${f.value} ${f.unit}` : f.value;
+      if (seen.has(key) && seen.get(key) !== val) {
+        push("error", `Противоречиви стойности за „${key}“ във вариант „${v.title}“ (${seen.get(key)} ≠ ${val}).`);
+      }
+      seen.set(key, val);
+    }
+  }
+
+  // Same check across sharedFacts.
+  if (cat.sharedFacts) {
+    const seen = new Map<string, string>();
+    for (const f of cat.sharedFacts) {
+      const val = f.unit ? `${f.value} ${f.unit}` : f.value;
+      if (seen.has(f.label) && seen.get(f.label) !== val) {
+        push("error", `Противоречиви общи стойности за „${f.label}“.`);
+      }
+      seen.set(f.label, val);
+    }
+  }
+
+  return warnings;
+}
+
+export function auditAllCategories(): AuditWarning[] {
+  return DRIVING_CATEGORIES.flatMap(auditCategory);
 }
