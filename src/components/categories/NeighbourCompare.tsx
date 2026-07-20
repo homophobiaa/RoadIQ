@@ -61,7 +61,7 @@ export function NeighbourCompare({ selectedId }: { selectedId: string }) {
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr>
-                <th className="px-3 py-2 text-left text-muted">Показател</th>
+                <th className="px-3 py-2 text-left text-muted">Ограничение</th>
                 {members.map((m) => (
                   <th
                     key={m.id}
@@ -96,7 +96,7 @@ export function NeighbourCompare({ selectedId }: { selectedId: string }) {
           </table>
         </div>
       ) : (
-        <p className="text-sm text-muted">Няма числови разлики в таблицата.</p>
+        <p className="text-sm text-muted">Тези категории нямат разлики в посочените стойности.</p>
       )}
     </div>
   );

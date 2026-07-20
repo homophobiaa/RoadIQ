@@ -58,6 +58,7 @@ export function CategoryDetail({ category }: { category: DrivingCategory }) {
         </div>
 
         {/* Vehicle types */}
+        <span className="caption-up mb-2 block">Какво можеш да управляваш</span>
         <div className="mb-5 flex flex-wrap gap-2">
           {category.vehicleTypes.map((t) => (
             <span key={t} className="rounded-md border border-hairline bg-surface-soft px-3 py-1 text-sm text-body">
@@ -67,6 +68,7 @@ export function CategoryDetail({ category }: { category: DrivingCategory }) {
         </div>
 
         {/* Fact stat cards, grouped where relevant */}
+        <span className="caption-up mb-2 block">Основни ограничения</span>
         <div className="space-y-4">
           {grouped.map((g, i) => (
             <div key={i}>
@@ -82,14 +84,17 @@ export function CategoryDetail({ category }: { category: DrivingCategory }) {
 
         {/* Notes */}
         {category.notes && category.notes.length > 0 && (
-          <ul className="mt-5 space-y-1.5">
-            {category.notes.map((n, i) => (
-              <li key={i} className="flex gap-2 text-sm text-body">
-                <span className="text-primary">•</span>
-                {n}
-              </li>
-            ))}
-          </ul>
+          <div className="mt-5">
+            <span className="caption-up mb-2 block text-primary-active">Важно уточнение</span>
+            <ul className="space-y-1.5">
+              {category.notes.map((n, i) => (
+                <li key={i} className="flex gap-2 text-sm text-body">
+                  <span className="text-primary">•</span>
+                  {n}
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
 
         {/* Expandable full definition */}
