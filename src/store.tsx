@@ -49,7 +49,9 @@ export const ROUTES = {
   categories: "/cheatsheets/categories",
 } as const;
 
-const RAW_CACHE_PREFIX = "roadiq:rawcache:";
+// v2: parser rewrite (typed answers, layout classification) — old cached raw
+// parses are incompatible and are simply ignored.
+const RAW_CACHE_PREFIX = "roadiq:rawcache:v2:";
 const cacheKey = (s: ScreenshotSource[]) =>
   RAW_CACHE_PREFIX + s.map((x) => x.fileName).sort().join("|");
 
@@ -204,7 +206,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (file: string, answerId: string, text: string) =>
       patch(file, (b, map) => ({
         ...b,
-        answers: effectiveAnswers(file, map).map((a) => (a.id === answerId ? { ...a, text } : a)),
+        // Text edits apply only to text answers; image answers keep their crop.
+        answers: effectiveAnswers(file, map).map((a) =>
+          a.id === answerId && a.type === "text" ? { ...a, text } : a,
+        ),
         edited: true,
       })),
     [patch, effectiveAnswers],
@@ -226,7 +231,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ...b,
         answers: [
           ...effectiveAnswers(file, map),
-          { id: newAnswerId(), text: "Нов отговор", correct: false },
+          { id: newAnswerId(), type: "text", text: "Нов отговор", correct: false },
         ],
         edited: true,
       })),

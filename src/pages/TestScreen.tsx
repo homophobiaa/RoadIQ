@@ -197,35 +197,75 @@ function QuestionPanel({
           />
         )}
 
-        <div className="grid gap-3">
-          {q.answers.map((a, i) => {
-            const selected = tq.selected.includes(a.id);
-            return (
-              <button
-                key={a.id}
-                onClick={() => onToggle(a.id)}
-                className={cx(
-                  "flex items-center gap-4 rounded-md border p-4 text-left transition-colors",
-                  selected
-                    ? "border-primary bg-primary/15"
-                    : "border-white/10 bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.06]",
-                )}
-              >
-                <span
+        {q.answers.some((a) => a.type === "image") ? (
+          /* Image answers: selectable picture cards in a row grid. */
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {q.answers.map((a, i) => {
+              const selected = tq.selected.includes(a.id);
+              return (
+                <button
+                  key={a.id}
+                  onClick={() => onToggle(a.id)}
+                  aria-label={a.type === "image" ? (a.altText ?? `Отговор ${i + 1}`) : undefined}
                   className={cx(
-                    "grid h-7 w-7 shrink-0 place-items-center rounded-md border text-sm font-semibold",
+                    "flex flex-col items-center gap-2 rounded-md border p-3 transition-colors",
                     selected
-                      ? "border-primary bg-primary text-on-primary"
-                      : "border-white/20 text-on-dark-soft",
+                      ? "border-primary bg-primary/15"
+                      : "border-white/10 bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.06]",
                   )}
                 >
-                  {String.fromCharCode(1040 + i)}
-                </span>
-                <span className="text-on-dark">{a.text}</span>
-              </button>
-            );
-          })}
-        </div>
+                  <span
+                    className={cx(
+                      "grid h-6 w-6 shrink-0 place-items-center self-start rounded-md border text-xs font-semibold",
+                      selected
+                        ? "border-primary bg-primary text-on-primary"
+                        : "border-white/20 text-on-dark-soft",
+                    )}
+                  >
+                    {String.fromCharCode(1040 + i)}
+                  </span>
+                  {a.type === "image" ? (
+                    <img src={a.imageUrl} alt="" className="max-h-44 w-full rounded bg-white object-contain" />
+                  ) : (
+                    <span className="text-on-dark">{a.text}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="grid gap-3">
+            {q.answers.map((a, i) => {
+              const selected = tq.selected.includes(a.id);
+              return (
+                <button
+                  key={a.id}
+                  onClick={() => onToggle(a.id)}
+                  className={cx(
+                    "flex items-center gap-4 rounded-md border p-4 text-left transition-colors",
+                    selected
+                      ? "border-primary bg-primary/15"
+                      : "border-white/10 bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.06]",
+                  )}
+                >
+                  <span
+                    className={cx(
+                      "grid h-7 w-7 shrink-0 place-items-center rounded-md border text-sm font-semibold",
+                      selected
+                        ? "border-primary bg-primary text-on-primary"
+                        : "border-white/20 text-on-dark-soft",
+                    )}
+                  >
+                    {String.fromCharCode(1040 + i)}
+                  </span>
+                  <span className="text-on-dark">
+                    {a.type === "text" ? a.text : ""}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
     </motion.div>
   );

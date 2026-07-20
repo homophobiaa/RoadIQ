@@ -1,111 +1,185 @@
-// Orchestrates the full per-screenshot pipeline:
-//   loadImage → detectLayout → crop regions → OCR → normalize → buildQuestionModel
+// Browser orchestrator:
+//   loadImage (clean, full-res) → detectLayout → per-layout crops → OCR with
+//   preprocessing + quality gates → validated ParsedQuestion.
 //
-// Never throws: any failure degrades to a low-confidence question carrying the
-// full screenshot as fallback, so a bad parse can't break the test flow.
+// Never throws: any failure degrades to an unusable question flagged for the
+// Debug Studio. The full screenshot is never used as a situation image, and
+// text is never invented — a failed OCR region stays empty with a warning.
 
-import type { ParsedAnswer, ParsedQuestion, ScreenshotSource, DebugBox } from "../types";
-import { loadImage, cropForOcr, cropPreview, type Rect } from "./imageUtils";
-import { detectLayout } from "./layout";
+import type {
+  DebugBox,
+  OcrRegionInfo,
+  ParsedAnswer,
+  ParsedQuestion,
+  ScreenshotSource,
+} from "../types";
+import {
+  detectLayout,
+  tightenTextRect,
+  validateDetection,
+  type DetectedLayout,
+  type Rect,
+} from "./detect";
+import { binarizeForOcr, cropGray, normalizeOcrText, scoreOcrText } from "./preprocess";
+import { loadImage, cropToJpeg, grayToDataUrl, type LoadedImage } from "./imageUtils";
 import { runOcrOnRegion, PSM } from "./ocr";
-import { normalizeBulgarianText, looksMeaningful } from "./text";
+import { normalizeBulgarianText } from "./text";
 
 let uid = 0;
 const nextId = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${uid++}`;
 
-function box(label: string, r: Rect, color: string): DebugBox {
-  return { label, x: r.x, y: r.y, w: r.w, h: r.h, color };
+const box = (label: string, r: Rect, color: string): DebugBox => ({
+  label,
+  x: r.x,
+  y: r.y,
+  w: r.w,
+  h: r.h,
+  color,
+});
+
+interface RegionOcr {
+  text: string;
+  info: OcrRegionInfo;
+}
+
+/**
+ * OCR one text region: tighten to ink bbox → grayscale+Otsu (polarity-safe) →
+ * Tesseract. When the binarized variant scores poorly, retry with the plain
+ * grayscale variant and keep the better result — never silently accept junk.
+ */
+async function ocrTextRegion(
+  src: LoadedImage,
+  name: string,
+  rect: Rect,
+  scale: number,
+): Promise<RegionOcr> {
+  const tight = tightenTextRect(src.raw, rect);
+  const gray = cropGray(src.raw, tight, scale);
+
+  const run = async (img: typeof gray) => {
+    const res = await runOcrOnRegion(grayToDataUrl(img), PSM.BLOCK);
+    const text = normalizeBulgarianText(normalizeOcrText(res.text));
+    const quality = scoreOcrText(text);
+    return { text, confidence: res.confidence, quality };
+  };
+
+  let best = await run(binarizeForOcr(gray));
+  if (!best.quality.ok || best.confidence < 65) {
+    const alt = await run(gray);
+    const altScore = (alt.quality.ok ? 1 : 0) * 100 + alt.confidence;
+    const bestScore = (best.quality.ok ? 1 : 0) * 100 + best.confidence;
+    if (altScore > bestScore) best = alt;
+  }
+
+  const ok = best.quality.ok;
+  return {
+    text: ok ? best.text : "",
+    info: {
+      name,
+      text: best.text,
+      confidence: Math.round(best.confidence),
+      ok,
+      reason: best.quality.reason,
+    },
+  };
 }
 
 export async function parseScreenshot(source: ScreenshotSource): Promise<ParsedQuestion> {
-  const baseFail = (warnings: string[]): ParsedQuestion => ({
+  const fail = (warnings: string[]): ParsedQuestion => ({
     id: nextId("q"),
     sourceImageUrl: source.url,
     fileName: source.fileName,
     title: source.fileName.replace(/\.[^.]+$/, ""),
     answers: [],
     correctCount: 0,
+    layout: "unknown",
+    usable: false,
     parseConfidence: "low",
     parseWarnings: warnings,
     debugBoxes: [],
   });
 
-  let src;
+  let src: LoadedImage;
   try {
     src = await loadImage(source.url);
   } catch (e) {
-    return baseFail([`Грешка при зареждане: ${(e as Error).message}`]);
+    return fail([`Грешка при зареждане: ${(e as Error).message}`]);
   }
 
-  const layout = detectLayout(src);
-  const warnings = [...layout.warnings];
+  const det: DetectedLayout = detectLayout(src.raw);
+  const validation = validateDetection(det);
+  const warnings = [...det.warnings, ...validation.warnings];
   const debugBoxes: DebugBox[] = [];
+  const ocrRegions: OcrRegionInfo[] = [];
 
-  // --- Title (OCR'd separately, single block, preprocessed) ---
+  // --- Title (independent region; can never become an answer) ---
   let title = "";
   let titleOk = false;
-  if (layout.titleRect) {
-    debugBoxes.push(box("Заглавие", layout.titleRect, "#cc785c"));
-    const raw = await runOcrOnRegion(cropForOcr(src, layout.titleRect), PSM.BLOCK);
-    title = normalizeBulgarianText(raw);
-  }
-  if (looksMeaningful(title)) {
-    titleOk = true;
-  } else {
-    // Bad/empty title → filename fallback, but NEVER a fake answer.
-    warnings.push("Заглавието не беше разпознато — ползвам име на файла.");
-    title = source.fileName.replace(/\.[^.]+$/, "");
+  if (det.titleRect) {
+    debugBoxes.push(box("Заглавие", det.titleRect, "#cc785c"));
+    const r = await ocrTextRegion(src, "Заглавие", det.titleRect, 1.6);
+    ocrRegions.push(r.info);
+    if (r.info.ok) {
+      title = r.text;
+      titleOk = true;
+    } else {
+      warnings.push("Заглавието не беше разчетено — нужна е ръчна проверка.");
+      title = source.fileName.replace(/\.[^.]+$/, "");
+    }
   }
 
-  // --- Situation image: only the confident stacked crop. Never full screenshot. ---
+  // --- Situation image (only the detected crop; never the full screenshot) ---
   let situationImageUrl: string | undefined;
-  if (layout.situationRect) {
-    debugBoxes.push(box("Ситуация", layout.situationRect, "#5db8a6"));
-    situationImageUrl = cropPreview(src, layout.situationRect);
-  }
-  if (layout.sideImageRect) {
-    debugBoxes.push(box("Възможна ситуация (ръчно)", layout.sideImageRect, "#5db8a6"));
+  if (det.situationRect) {
+    debugBoxes.push(box("Ситуация", det.situationRect, "#5db8a6"));
+    situationImageUrl = cropToJpeg(src, det.situationRect);
   }
 
-  // --- Answers (only from icon-aligned rows; text crop excludes icon/image) ---
+  // --- Answers per layout ---
   const answers: ParsedAnswer[] = [];
   let ocrFailures = 0;
-  for (let i = 0; i < layout.answerBands.length; i++) {
-    const band = layout.answerBands[i];
+
+  for (let i = 0; i < det.answers.length; i++) {
+    const a = det.answers[i];
+    const label = `Отговор ${i + 1}`;
     debugBoxes.push(
-      box(
-        `Отговор ${i + 1} ${band.uncertain ? "?" : band.correct ? "✓" : "✗"}`,
-        band.rect,
-        band.uncertain ? "#d4a017" : band.correct ? "#5db872" : "#c64545",
-      ),
+      box(`${label} ${a.correct ? "✓" : "✗"}`, a.rect, a.correct ? "#5db872" : "#c64545"),
     );
-    const raw = await runOcrOnRegion(cropForOcr(src, band.textRect), PSM.BLOCK);
-    let text = normalizeBulgarianText(raw);
-    if (!looksMeaningful(text)) {
-      text = `Отговор ${i + 1}`;
-      ocrFailures++;
+
+    if (det.layout === "horizontal-image-answers" && a.imageRect) {
+      // Image answer: crop only; no OCR attempted on picture content.
+      debugBoxes.push(box(`${label} (снимка)`, a.imageRect, "#e8a55a"));
+      answers.push({
+        id: nextId("a"),
+        type: "image",
+        imageUrl: cropToJpeg(src, a.imageRect, 500),
+        correct: a.correct,
+        altText: label, // accessibility metadata only — never OCR input/content
+      });
+      continue;
     }
-    answers.push({ id: nextId("a"), text, correct: band.correct });
+
+    if (a.textRect) {
+      const r = await ocrTextRegion(src, label, a.textRect, 2);
+      ocrRegions.push(r.info);
+      if (!r.info.ok) {
+        ocrFailures++;
+        warnings.push(`${label}: текстът не беше разчетен (${r.info.reason ?? "ниско качество"}).`);
+      }
+      answers.push({ id: nextId("a"), type: "text", text: r.text, correct: a.correct });
+    }
   }
 
   const correctCount = answers.filter((a) => a.correct).length;
-  const iconsMatch = !layout.answerBands.some((b) => b.uncertain);
+  const usable = validation.usable && ocrFailures < answers.length;
 
-  // --- Warnings ---
-  if (answers.length === 0) warnings.push("Не са открити отговори.");
-  else if (answers.length < 2) warnings.push("Подозрително малко отговори (по-малко от 2).");
-  else if (answers.length > 6) warnings.push("Подозрително много отговори (повече от 6).");
-  if (correctCount === 0 && answers.length > 0)
-    warnings.push("Не е открит верен отговор (липсва зелен индикатор).");
-  if (ocrFailures > 0) warnings.push(`OCR не разчете ${ocrFailures} отговор(а).`);
-
-  const parseConfidence = scoreConfidence({
-    answerCount: answers.length,
-    correctCount,
-    titleOk,
-    iconsMatch,
-    ocrFailures,
-  });
+  const parseConfidence: ParsedQuestion["parseConfidence"] = !usable
+    ? "low"
+    : titleOk && ocrFailures === 0
+      ? "high"
+      : ocrFailures <= 1
+        ? "medium"
+        : "low";
 
   return {
     id: nextId("q"),
@@ -115,30 +189,13 @@ export async function parseScreenshot(source: ScreenshotSource): Promise<ParsedQ
     answers,
     correctCount,
     situationImageUrl,
+    layout: det.layout,
+    usable,
     parseConfidence,
     parseWarnings: warnings,
+    ocrRegions,
     debugBoxes,
-    iconDots: layout.iconDots,
+    iconDots: det.icons.map((ic) => ({ x: ic.cx, y: ic.cy, correct: ic.correct })),
     debugFrame: { w: src.width, h: src.height },
   };
-}
-
-interface ConfInput {
-  answerCount: number;
-  correctCount: number;
-  titleOk: boolean;
-  iconsMatch: boolean; // correctness came from real icons, not grey-card guess
-  ocrFailures: number;
-}
-
-// High  : title + 2+ answers + 1+ correct + icons matched + clean OCR
-// Medium: answers & correctness ok, but title weak OR some OCR misses
-// Low    : no title / bad OCR / no icons / weird answer count
-// (a question with no usable/correct answers also lands Low → filtered from tests)
-function scoreConfidence(c: ConfInput): ParsedQuestion["parseConfidence"] {
-  const usable = c.answerCount >= 2 && c.correctCount >= 1;
-  if (!usable) return "low";
-  if (c.titleOk && c.iconsMatch && c.ocrFailures === 0) return "high";
-  if (c.iconsMatch && (c.titleOk || c.ocrFailures <= 1)) return "medium";
-  return "low";
 }

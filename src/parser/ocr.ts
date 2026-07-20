@@ -7,7 +7,7 @@ let workerPromise: Promise<Worker> | null = null;
 
 export function getOcrWorker(): Promise<Worker> {
   if (!workerPromise) {
-    // "bul+eng" — listovki text is Bulgarian but often contains latin/digits.
+    // "bul+eng" — listovki text is Bulgarian but often contains latin/digits (kg, mm).
     workerPromise = createWorker("bul+eng", Tesseract.OEM.LSTM_ONLY);
   }
   return workerPromise;
@@ -21,23 +21,27 @@ export async function terminateOcr(): Promise<void> {
   }
 }
 
-/** Tesseract page-segmentation modes we use per region. */
 export const PSM = {
-  /** Assume a single uniform block of text — used for titles. */
+  /** Single uniform block — titles and (possibly multi-line) answers. */
   BLOCK: "6",
-  /** Assume a single text line — used for one-line answers. */
+  /** Single text line. */
   LINE: "7",
 } as const;
 export type Psm = (typeof PSM)[keyof typeof PSM];
 
-/** Run OCR on a single cropped data URL with the given segmentation mode. */
-export async function runOcrOnRegion(dataUrl: string, psm: Psm = PSM.BLOCK): Promise<string> {
+export interface OcrResult {
+  text: string;
+  confidence: number;
+}
+
+/** Run OCR on a preprocessed data URL. Returns text + Tesseract confidence. */
+export async function runOcrOnRegion(dataUrl: string, psm: Psm = PSM.BLOCK): Promise<OcrResult> {
   try {
     const worker = await getOcrWorker();
     await worker.setParameters({ tessedit_pageseg_mode: psm as Tesseract.PSM });
     const { data } = await worker.recognize(dataUrl);
-    return data.text ?? "";
+    return { text: data.text ?? "", confidence: data.confidence ?? 0 };
   } catch {
-    return "";
+    return { text: "", confidence: 0 };
   }
 }

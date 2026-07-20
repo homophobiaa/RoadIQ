@@ -24,7 +24,16 @@ export type CorrectionMap = Record<string, Correction>;
 export function loadCorrections(): CorrectionMap {
   try {
     const raw = localStorage.getItem(STORE_KEY);
-    return raw ? (JSON.parse(raw) as CorrectionMap) : {};
+    const map = raw ? (JSON.parse(raw) as CorrectionMap) : {};
+    // Migration: corrections saved before the typed-answer model lack `type`.
+    for (const c of Object.values(map)) {
+      if (c.answers) {
+        c.answers = c.answers.map((a) =>
+          "type" in a && a.type ? a : { ...(a as { id: string; text?: string; correct: boolean }), type: "text" as const, text: (a as { text?: string }).text ?? "" },
+        ) as Correction["answers"];
+      }
+    }
+    return map;
   } catch {
     return {};
   }

@@ -1,9 +1,31 @@
+import type { QuestionLayout } from "./parser/detect";
+
 export type ParseConfidence = "high" | "medium" | "low";
 
-export interface ParsedAnswer {
-  id: string;
+export type ParsedAnswer =
+  | {
+      id: string;
+      type: "text";
+      text: string;
+      correct: boolean;
+    }
+  | {
+      id: string;
+      type: "image";
+      /** Cropped answer-image data URL — the only visual shown in tests. */
+      imageUrl: string;
+      correct: boolean;
+      /** Accessibility/debug label only — NEVER OCR output, never shown as content. */
+      altText?: string;
+    };
+
+/** Per-region OCR diagnostics surfaced in the Debug Studio. */
+export interface OcrRegionInfo {
+  name: string;
   text: string;
-  correct: boolean;
+  confidence: number;
+  ok: boolean;
+  reason?: string;
 }
 
 export interface ParsedQuestion {
@@ -15,13 +37,19 @@ export interface ParsedQuestion {
   answers: ParsedAnswer[];
   correctCount: number;
   situationImageUrl?: string;
+  /** Which of the three supported layouts the screenshot matched. */
+  layout: QuestionLayout;
+  /** Structural validation verdict — unusable questions never enter tests automatically. */
+  usable: boolean;
   parseConfidence: ParseConfidence;
   parseWarnings: string[];
-  /** Detected layout boxes in analysis-frame pixel coords, for debug overlay. */
+  /** OCR text + confidence per region, for the Debug Studio. */
+  ocrRegions?: OcrRegionInfo[];
+  /** Detected layout boxes in source-image pixel coords, for debug overlay. */
   debugBoxes?: DebugBox[];
-  /** Detected green/red icon centers (analysis-frame coords) for overlay dots. */
+  /** Detected green/red icon centers for overlay dots. */
   iconDots?: IconDot[];
-  /** Size of the (possibly downscaled) frame the boxes are expressed in. */
+  /** Source-image dimensions the boxes are expressed in. */
   debugFrame?: { w: number; h: number };
 
   // ---- Manual-correction layer (applied from localStorage after parsing) ----

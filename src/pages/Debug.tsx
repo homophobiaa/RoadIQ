@@ -170,6 +170,13 @@ export default function Debug() {
   );
 }
 
+const LAYOUT_LABEL: Record<string, string> = {
+  "vertical-text": "Текстови отговори",
+  "image-left-text-right": "Снимка + текстови отговори",
+  "horizontal-image-answers": "Отговори-снимки",
+  unknown: "Неразпознато",
+};
+
 function Studio({ q }: { q: ParsedQuestion }) {
   const [cropping, setCropping] = useState(false);
   const { setSituationImage } = useStore();
@@ -208,15 +215,37 @@ const ZOOMS = [
   { label: "150%", value: 1.5 },
 ];
 
+type ViewMode = "original" | "regions" | "crops";
+
 function Viewer({ q, onCrop }: { q: ParsedQuestion; onCrop: () => void }) {
   const [zoom, setZoom] = useState(0); // 0 = fit width
-  const [overlays, setOverlays] = useState(true);
+  const [mode, setMode] = useState<ViewMode>("regions");
   const W = q.debugFrame?.w ?? 1;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline px-4 py-2">
-        <span className="caption-up mr-1">Мащаб</span>
+        <span className="badge bg-primary/15 text-primary-active">
+          {LAYOUT_LABEL[q.layout] ?? q.layout}
+        </span>
+        <div className="mx-1 h-5 w-px bg-hairline" />
+        {(
+          [
+            ["original", "Оригинал"],
+            ["regions", "Рамки"],
+            ["crops", "Изрязвания"],
+          ] as const
+        ).map(([m, label]) => (
+          <button
+            key={m}
+            className={cx("chip !px-2.5 !py-1 text-xs", mode === m && "chip-active")}
+            onClick={() => setMode(m)}
+          >
+            {label}
+          </button>
+        ))}
+        <div className="mx-1 h-5 w-px bg-hairline" />
+        <span className="caption-up">Мащаб</span>
         {ZOOMS.map((z) => (
           <button
             key={z.label}
@@ -226,28 +255,83 @@ function Viewer({ q, onCrop }: { q: ParsedQuestion; onCrop: () => void }) {
             {z.label}
           </button>
         ))}
-        <div className="mx-2 h-5 w-px bg-hairline" />
-        <button
-          className={cx("chip !px-2.5 !py-1 text-xs", overlays && "chip-active")}
-          onClick={() => setOverlays((v) => !v)}
-        >
-          Рамки
-        </button>
         <button className="chip !px-2.5 !py-1 text-xs" onClick={onCrop}>
           Изрежи ситуация
         </button>
-        {overlays && <OverlayLegend />}
+        {mode === "regions" && <OverlayLegend />}
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto p-5">
-        <div
-          className="relative mx-auto"
-          style={zoom === 0 ? { width: "100%" } : { width: W * zoom, maxWidth: "none" }}
-        >
-          <img src={q.sourceImageUrl} alt={q.fileName} className="block w-full rounded-md border border-hairline" />
-          {overlays && <Overlay q={q} />}
-        </div>
+        {mode === "crops" ? (
+          <CropsPanel q={q} />
+        ) : (
+          <div
+            className="relative mx-auto"
+            style={zoom === 0 ? { width: "100%" } : { width: W * zoom, maxWidth: "none" }}
+          >
+            {/* Clean source image; the SVG overlay is a separate layer that is
+                never part of any canvas the OCR pipeline reads. */}
+            <img src={q.sourceImageUrl} alt={q.fileName} className="block w-full rounded-md border border-hairline" />
+            {mode === "regions" && <Overlay q={q} />}
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+/** Extracted crops at readable size + per-region OCR diagnostics. */
+function CropsPanel({ q }: { q: ParsedQuestion }) {
+  return (
+    <div className="space-y-5">
+      {q.situationImageUrl && (
+        <div>
+          <span className="caption-up mb-1.5 block">Ситуация (изрязана)</span>
+          <img src={q.situationImageUrl} alt="ситуация" className="max-h-72 rounded-md border border-hairline" />
+        </div>
+      )}
+      {q.answers.some((a) => a.type === "image") && (
+        <div>
+          <span className="caption-up mb-1.5 block">Отговори-снимки (изрязани)</span>
+          <div className="flex flex-wrap gap-3">
+            {q.answers.map(
+              (a, i) =>
+                a.type === "image" && (
+                  <div key={a.id} className="text-center">
+                    <img src={a.imageUrl} alt={a.altText ?? ""} className="max-h-48 rounded-md border border-hairline bg-white" />
+                    <span className={cx("mt-1 block text-xs font-medium", a.correct ? "text-success" : "text-error")}>
+                      {i + 1} · {a.correct ? "верен" : "грешен"}
+                    </span>
+                  </div>
+                ),
+            )}
+          </div>
+        </div>
+      )}
+      {q.ocrRegions && q.ocrRegions.length > 0 && (
+        <div>
+          <span className="caption-up mb-1.5 block">OCR резултати</span>
+          <div className="space-y-2">
+            {q.ocrRegions.map((r, i) => (
+              <div
+                key={i}
+                className={cx(
+                  "rounded-md border p-2.5 text-sm",
+                  r.ok ? "border-hairline bg-canvas" : "border-error/40 bg-error/5",
+                )}
+              >
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="font-medium text-ink">{r.name}</span>
+                  <span className={cx("font-mono text-xs", r.confidence >= 80 ? "text-success" : r.confidence >= 60 ? "text-[#a06a13]" : "text-error")}>
+                    conf {r.confidence}%{!r.ok && r.reason ? ` · ${r.reason}` : ""}
+                  </span>
+                </div>
+                <p className="text-body">{r.text || "—"}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -394,11 +478,20 @@ function Editor({ q }: { q: ParsedQuestion }) {
                   Изтрий
                 </button>
               </div>
-              <textarea
-                className="input min-h-[56px] w-full resize-y text-sm"
-                value={a.text}
-                onChange={(e) => editAnswerText(file, a.id, e.target.value)}
-              />
+              {a.type === "image" ? (
+                <img
+                  src={a.imageUrl}
+                  alt={a.altText ?? `Отговор ${i + 1}`}
+                  className="max-h-36 rounded-md border border-hairline bg-white"
+                />
+              ) : (
+                <textarea
+                  className="input min-h-[56px] w-full resize-y text-sm"
+                  value={a.text}
+                  onChange={(e) => editAnswerText(file, a.id, e.target.value)}
+                  placeholder="(неразчетен текст — въведи ръчно)"
+                />
+              )}
             </div>
           ))}
           {q.answers.length === 0 && (

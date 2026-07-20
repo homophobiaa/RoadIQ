@@ -11,9 +11,14 @@ export interface BuildOptions {
   includeUnverified: boolean;
 }
 
-/** A question is gradable when it has ≥2 answers and ≥1 correct, and isn't excluded. */
+/**
+ * A question is gradable when it has 2–4 answers, ≥1 correct, isn't excluded,
+ * and either passed structural validation or was human-corrected/verified —
+ * an invalid automatic parse never enters tests on its own.
+ */
 export function isGradable(q: ParsedQuestion): boolean {
-  return !q.excluded && q.answers.length >= 2 && q.correctCount >= 1;
+  const structureOk = q.usable !== false || q.verified === true || q.corrected === true;
+  return !q.excluded && structureOk && q.answers.length >= 2 && q.correctCount >= 1;
 }
 
 /**

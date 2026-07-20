@@ -106,7 +106,11 @@ function ReviewCard({ row, index }: { row: TestResultRow; index: number }) {
               key={a.id}
               className={cx("flex items-center justify-between rounded-md border px-4 py-2.5", style)}
             >
-              <span>{a.text}</span>
+              {a.type === "image" ? (
+                <img src={a.imageUrl} alt={a.altText ?? ""} className="max-h-28 rounded bg-white object-contain" />
+              ) : (
+                <span>{a.text}</span>
+              )}
               {tag && <span className="ml-3 shrink-0 text-xs font-medium opacity-90">{tag}</span>}
             </div>
           );
