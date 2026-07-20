@@ -443,5 +443,7 @@ export function questionCounts(questions: ParsedQuestion[]) {
     low: questions.filter((q) => q.parseConfidence === "low" && !q.excluded).length,
     excluded: questions.filter((q) => q.excluded).length,
     manualCrops: questions.filter((q) => q.manualCrop && !q.excluded).length,
+    withImage: questions.filter((q) => q.situationImageUrl && !q.excluded).length,
+    missingImage: questions.filter((q) => q.needsImageCrop && !q.situationImageUrl && !q.excluded).length,
   };
 }

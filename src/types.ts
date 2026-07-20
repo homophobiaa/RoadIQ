@@ -34,6 +34,10 @@ export interface OcrRegionInfo {
   rect?: { x: number; y: number; w: number; h: number };
   /** Composite region confidence (detection / crop quality / OCR). */
   combined?: number;
+  /** Common-word (ь→ъ) post-processing changed the chosen result. */
+  postProcessed?: boolean;
+  /** Suspicious-text score of the raw chosen OCR result, 0..1. */
+  suspicious?: number;
 }
 
 export interface ParsedQuestion {

@@ -109,3 +109,20 @@ export const STATUS_LABEL: Record<QuestionStatus, string> = {
   excluded: "Изключен",
   parsed: "Автоматичен",
 };
+
+/** Explicit, human-readable reason for the current status (Debug Studio). */
+export function statusReason(q: ParsedQuestion): string {
+  if (q.excluded) return "Изключен от тестовете ръчно.";
+  if (q.verified) return "Потвърден ръчно — приема се за надежден.";
+  if (q.corrected) return "Коригиран — има запазени ръчни промени.";
+  return "Автоматичен — няма запазени ръчни промени.";
+}
+
+/** Whether the question carries a situation image, and whether it was manual. */
+export function imageInfo(q: ParsedQuestion): { has: boolean; manual: boolean; missing: boolean } {
+  return {
+    has: !!q.situationImageUrl,
+    manual: !!q.manualCrop,
+    missing: !!q.needsImageCrop && !q.situationImageUrl,
+  };
+}

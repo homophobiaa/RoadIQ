@@ -5,6 +5,7 @@
 
 import { tightenTextRect, type RawImage, type Rect } from "./detect";
 import {
+  adaptiveThreshold,
   binarizeForOcr,
   clearEdgeComponents,
   cropGray,
@@ -40,6 +41,10 @@ export interface OcrRegionOutcome {
   text: string;
   ok: boolean;
   reason?: string;
+  /** True when common-word protection changed the chosen OCR result. */
+  postProcessed: boolean;
+  /** Suspicious-text score of the chosen (pre-protection) OCR result, 0..1. */
+  suspicious: number;
   confidence: RegionConfidence;
   attempts: OcrAttempt[];
   /** The tightened rect actually OCR'd (source-image pixel coordinates). */
@@ -60,11 +65,67 @@ function recoverShortAnswer(text: string): string {
   return text;
 }
 
+/**
+ * Detects OCR corruption typical of gradient-shaded Cyrillic: runs of Latin
+ * UPPERCASE letters embedded in Bulgarian text (e.g. "NMbTHWA" for "пътния",
+ * "NbTHA" for "пътна"), and clusters of isolated single characters ("АЕ A",
+ * "Й й"). Returns 0..1 where higher = more suspicious.
+ */
+export function suspiciousScore(text: string): number {
+  if (!text) return 1;
+  const chars = [...text.replace(/\s+/g, "")];
+  const cyr = chars.filter((c) => /[Ѐ-ӿ]/.test(c)).length;
+  const cyrRatio = chars.length ? cyr / chars.length : 0;
+  let s = 0;
+  // Latin-uppercase run of ≥2 (very rare in real BG answers, common in corruption).
+  const latinRuns = text.match(/[A-Z]{2,}/g) ?? [];
+  if (latinRuns.length) s += Math.min(0.6, 0.3 * latinRuns.length);
+  // A token that mixes Latin+Cyrillic is almost always garbage.
+  for (const tok of text.split(/\s+/)) {
+    const hasLat = /[A-Za-z]/.test(tok);
+    const hasCyr = /[Ѐ-ӿ]/.test(tok);
+    if (hasLat && hasCyr && tok.length >= 3) s += 0.35;
+  }
+  // Many isolated 1-char tokens in a multi-word answer → fragmented junk.
+  const tokens = text.split(/\s+/).filter(Boolean);
+  const singles = tokens.filter((t) => t.length === 1 && /[A-Za-zЀ-ӿ]/.test(t)).length;
+  if (tokens.length >= 2 && singles / tokens.length > 0.5) s += 0.4;
+  // Overall too little Cyrillic for a text answer.
+  if (chars.length > 3 && cyrRatio < 0.5) s += 0.3;
+  return Math.min(1, s);
+}
+
+/**
+ * Conservative, dictionary-free OCR-confusion recovery.
+ *
+ * Grayscale/gradient rendering makes Tesseract read "ъ" as the near-identical
+ * "ь" (e.g. "пьтния" for "пътния"). In Bulgarian orthography "ь" is valid ONLY
+ * in the sequence "ьо" (шофьор, бульон); anywhere else it is always an OCR
+ * error for "ъ". So we replace "ь"→"ъ" unless it is immediately followed by
+ * "о". This fixes the observed corruption without ever touching a valid word
+ * (unlike an edit-distance word list, which wrongly "corrects" inflections such
+ * as "автомобили"→"автомобил").
+ */
+export function protectCommonWords(text: string): { text: string; applied: boolean } {
+  let applied = false;
+  const out = text
+    .replace(/ь(?!о)/g, () => {
+      applied = true;
+      return "ъ";
+    })
+    .replace(/Ь(?![оО])/g, () => {
+      applied = true;
+      return "Ъ";
+    });
+  return { text: out, applied };
+}
+
 function combinedScore(text: string, confidence: number, ok: boolean): number {
   const chars = [...text.replace(/\s+/g, "")];
   const cyr = chars.filter((c) => /[Ѐ-ӿ]/.test(c)).length;
   const cyrRatio = chars.length ? cyr / chars.length : 0;
-  return (ok ? 100 : 0) + confidence + cyrRatio * 30 + Math.min(chars.length, 20);
+  const suspicious = suspiciousScore(text);
+  return (ok ? 100 : 0) + confidence + cyrRatio * 30 + Math.min(chars.length, 20) - suspicious * 90;
 }
 
 /** Ink coverage of a binarized crop — flags mostly-empty or clipped crops. */
@@ -110,9 +171,19 @@ export async function ocrRegionPipeline(
   const minLetters = opts.minLetters ?? (glyphW < 300 ? 1 : 2);
   const primaryPsm: OcrPsm = glyphH <= 55 ? (glyphW <= 240 ? "8" : "7") : "6";
 
+  // Adaptive-threshold variant handles gradient bars where global Otsu corrupts
+  // the leftmost word. Built lazily (from the surviving-glyph bbox on gray0) and
+  // only OCR'd when the cheap first passes look suspicious/low-confidence.
+  const clearedBinName = useCleared ? "binarized+cleared" : "binarized";
+  const adaptiveFull = adaptiveThreshold(gray0);
+  const adaptiveBase = inkCount(clearEdgeComponents(adaptiveFull)) > 40 ? clearEdgeComponents(adaptiveFull) : adaptiveFull;
+  const adaptiveBBox = inkBBox(adaptiveBase) ?? bbox;
+  const adaptive = cropPadGray(adaptiveBase, adaptiveBBox, 14);
+
   const plan: { variant: string; img: GrayImage; psm: OcrPsm }[] = [
-    { variant: useCleared ? "binarized+cleared" : "binarized", img: bin, psm: primaryPsm },
-    { variant: useCleared ? "binarized+cleared" : "binarized", img: bin, psm: primaryPsm === "6" ? "7" : "6" },
+    { variant: clearedBinName, img: bin, psm: primaryPsm },
+    { variant: "adaptive", img: adaptive, psm: primaryPsm },
+    { variant: clearedBinName, img: bin, psm: primaryPsm === "6" ? "7" : "6" },
     { variant: "grayscale", img: gray, psm: primaryPsm },
   ];
 
@@ -135,8 +206,9 @@ export async function ocrRegionPipeline(
     };
     attempts.push(attempt);
     if (!best || attempt.score > best.score) best = attempt;
-    // Cheap early exit: a confident, quality-passing first pass needs no retry.
-    if (attempt.ok && attempt.confidence >= 80) break;
+    // Early exit only on a clean, confident, NON-suspicious result — a
+    // high-confidence but corrupted "NMbTHWA" must not short-circuit the retry.
+    if (attempt.ok && attempt.confidence >= 80 && suspiciousScore(attempt.text) < 0.2) break;
   }
 
   const coverage = inkCoverage(bin);
@@ -144,10 +216,17 @@ export async function ocrRegionPipeline(
   const ocrConf = best ? best.confidence / 100 : 0;
   const combined = (best?.ok ? 1 : 0) * 0.5 + ocrConf * 0.3 + cropQuality * 0.2;
 
+  // Conservative common-word recovery on the chosen result only.
+  let finalText = best?.ok ? best.text : "";
+  const prot = protectCommonWords(finalText);
+  finalText = prot.text;
+
   return {
-    text: best?.ok ? best.text : "",
+    text: finalText,
     ok: best?.ok ?? false,
     reason: best?.ok ? undefined : (best?.reason ?? "празен текст"),
+    postProcessed: prot.applied,
+    suspicious: best ? suspiciousScore(best.text) : 1,
     confidence: {
       detection: 1,
       cropQuality,

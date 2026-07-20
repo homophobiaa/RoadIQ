@@ -143,7 +143,7 @@ function DonePanel({
         <StatCard label="Годни за тест" value={counts.usable} accent="text-primary-active" />
         <StatCard label="За преглед" value={counts.needsReview} accent="text-[#a06a13]" />
         <StatCard label="Потвърдени" value={counts.verified} accent="text-success" />
-        <StatCard label="Изключени" value={counts.excluded} accent="text-muted" />
+        <StatCard label="С изображение" value={counts.withImage} accent="text-accent-teal" />
         <StatCard label="Ниска увереност" value={counts.low} accent="text-error" />
       </div>
 

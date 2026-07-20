@@ -161,6 +161,75 @@ export function clearEdgeComponents(g: GrayImage): GrayImage {
   return { ...g, data: out };
 }
 
+/**
+ * Local adaptive threshold (Bradley/Wellner, integral-image). Unlike global
+ * Otsu, this handles the vertical GRADIENT shading on selected (dark) answer
+ * bars and on some title bands — the exact regions where Otsu corrupted the
+ * leftmost word (e.g. "пътния" → "NMbTHWA"). Output is always dark-glyph-on-
+ * white; polarity is auto-detected by running both comparisons and keeping the
+ * one whose ink is a plausible text minority.
+ */
+export function adaptiveThreshold(g: GrayImage, cAbs = 8): GrayImage {
+  const { width: w, height: h } = g;
+  const win = Math.max(15, Math.round(Math.min(w, h) * 0.5)) | 1;
+  const half = win >> 1;
+
+  // Integral image of luminance.
+  const integ = new Float64Array((w + 1) * (h + 1));
+  for (let y = 0; y < h; y++) {
+    let rowSum = 0;
+    for (let x = 0; x < w; x++) {
+      rowSum += g.data[y * w + x];
+      integ[(y + 1) * (w + 1) + (x + 1)] = integ[y * (w + 1) + (x + 1)] + rowSum;
+    }
+  }
+  const localMean = (x: number, y: number): number => {
+    const x0 = Math.max(0, x - half);
+    const y0 = Math.max(0, y - half);
+    const x1 = Math.min(w - 1, x + half);
+    const y1 = Math.min(h - 1, y + half);
+    const area = (x1 - x0 + 1) * (y1 - y0 + 1);
+    const s =
+      integ[(y1 + 1) * (w + 1) + (x1 + 1)] -
+      integ[y0 * (w + 1) + (x1 + 1)] -
+      integ[(y1 + 1) * (w + 1) + x0] +
+      integ[y0 * (w + 1) + x0];
+    return s / area;
+  };
+
+  const dark = new Uint8ClampedArray(w * h);
+  const light = new Uint8ClampedArray(w * h);
+  let darkCount = 0;
+  let lightCount = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      const m = localMean(x, y);
+      if (g.data[i] < m - cAbs) {
+        dark[i] = 1;
+        darkCount++;
+      } else if (g.data[i] > m + cAbs) {
+        light[i] = 1;
+        lightCount++;
+      }
+    }
+  }
+
+  // Text is the minority foreground. Prefer whichever polarity yields the
+  // smaller, plausible ink fraction (dark text on light bar → `dark`; white
+  // text on dark selected bar → `light`).
+  const total = w * h;
+  const darkFrac = darkCount / total;
+  const lightFrac = lightCount / total;
+  const plausible = (f: number) => f > 0.003 && f < 0.45;
+  let ink = dark;
+  if (plausible(lightFrac) && (!plausible(darkFrac) || lightFrac < darkFrac)) ink = light;
+
+  const out = new Uint8ClampedArray(w * h);
+  for (let i = 0; i < total; i++) out[i] = ink[i] ? 0 : 255;
+  return { ...g, data: out };
+}
+
 /** Count of dark (ink) pixels in a binarized image. */
 export function inkCount(g: GrayImage): number {
   let n = 0;

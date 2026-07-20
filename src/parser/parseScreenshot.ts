@@ -64,6 +64,8 @@ async function ocrTextRegion(
       })),
       rect: out.rect,
       combined: out.confidence.combined,
+      postProcessed: out.postProcessed,
+      suspicious: out.suspicious,
     },
   };
 }
@@ -150,6 +152,10 @@ export async function parseScreenshot(source: ScreenshotSource): Promise<ParsedQ
       if (!r.info.ok) {
         ocrFailures++;
         warnings.push(`${label}: текстът не беше разчетен (${r.info.reason ?? "ниско качество"}).`);
+      } else if ((r.info.suspicious ?? 0) > 0.4) {
+        warnings.push(`${label}: подозрителен текст — провери разчитането.`);
+      } else if (r.info.confidence < 55) {
+        warnings.push(`${label}: ниска увереност след опити (${r.info.confidence}%).`);
       }
       answers.push({ id, type: "text", text: r.text, correct: a.correct });
     }

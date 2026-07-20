@@ -3,23 +3,49 @@ import { useNavigate } from "react-router-dom";
 import { ROUTES, useStore } from "../store";
 import { Logo, ConfidenceBadge, StatusBadge } from "../components/ui";
 import { CropSelector } from "../components/CropSelector";
-import { statusOf } from "../lib/corrections";
+import { statusOf, statusReason, imageInfo } from "../lib/corrections";
 import { cx } from "../lib/utils";
 import type { ParsedQuestion } from "../types";
 
-type Filter = "all" | "review" | "verified" | "excluded" | "low";
+type Filter =
+  | "all"
+  | "review"
+  | "verified"
+  | "corrected"
+  | "excluded"
+  | "low"
+  | "with-image"
+  | "no-image"
+  | "missing-image"
+  | "automatic";
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "all", label: "Всички" },
+  { key: "with-image", label: "С изображение" },
+  { key: "no-image", label: "Без изображение" },
+  { key: "missing-image", label: "Липсва очаквано изобр." },
   { key: "review", label: "За преглед" },
+  { key: "automatic", label: "Автоматични" },
+  { key: "corrected", label: "Коригирани" },
   { key: "verified", label: "Потвърдени" },
   { key: "low", label: "Ниска ув." },
   { key: "excluded", label: "Изключени" },
 ];
 
 function matchFilter(q: ParsedQuestion, f: Filter): boolean {
+  const img = imageInfo(q);
   switch (f) {
     case "all":
       return true;
+    case "with-image":
+      return img.has;
+    case "no-image":
+      return !img.has && !img.missing;
+    case "missing-image":
+      return img.missing;
+    case "automatic":
+      return statusOf(q) === "parsed";
+    case "corrected":
+      return statusOf(q) === "corrected";
     case "verified":
       return !!q.verified && !q.excluded;
     case "excluded":
@@ -30,7 +56,7 @@ function matchFilter(q: ParsedQuestion, f: Filter): boolean {
       return (
         !q.excluded &&
         !q.verified &&
-        (q.parseConfidence === "low" || q.parseWarnings.length > 0 || q.correctCount === 0)
+        (q.parseConfidence === "low" || q.parseWarnings.length > 0 || q.correctCount === 0 || img.missing)
       );
   }
 }
@@ -146,9 +172,10 @@ export default function Debug() {
                   <StatusBadge status={statusOf(q)} />
                 </div>
                 <div className="truncate text-sm text-ink">{q.title || "—"}</div>
-                <div className="mt-1 flex items-center gap-2 text-xs text-muted-soft">
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-soft">
                   <span>{q.answers.length} отг · {q.correctCount} верни</span>
-                  {q.manualCrop && <span className="text-primary">• изрязан</span>}
+                  {q.situationImageUrl && <span className="text-accent-teal">• С изображение</span>}
+                  {imageInfo(q).missing && <span className="text-[#a06a13]">• липсва изобр.</span>}
                   {q.parseWarnings.length > 0 && <span className="text-[#a06a13]">• {q.parseWarnings.length}⚠</span>}
                 </div>
               </button>
@@ -344,6 +371,14 @@ function OcrRegionCard({ q, r }: { q: ParsedQuestion; r: NonNullable<ParsedQuest
         </span>
       </div>
       <p className="text-body">{r.text || "—"}</p>
+      <div className="mt-1 flex flex-wrap gap-1.5">
+        {r.postProcessed && (
+          <span className="badge bg-primary/15 text-primary-active">ь→ъ корекция</span>
+        )}
+        {(r.suspicious ?? 0) > 0.4 && (
+          <span className="badge bg-error/15 text-error">подозрителен ({(r.suspicious ?? 0).toFixed(2)})</span>
+        )}
+      </div>
       {r.rect && (
         <p className="mt-1 font-mono text-[10px] text-muted-soft">
           crop x={r.rect.x} y={r.rect.y} w={r.rect.w} h={r.rect.h} (източник {q.debugFrame?.w}×{q.debugFrame?.h})
@@ -410,8 +445,15 @@ function Editor({ q }: { q: ParsedQuestion }) {
         <StatusBadge status={statusOf(q)} />
         <ConfidenceBadge value={q.parseConfidence} />
         {!q.usable && <span className="badge bg-error/15 text-error">за преглед</span>}
+        {q.situationImageUrl && (
+          <span className="badge bg-accent-teal/15 text-[#2f7d6f]">
+            {q.manualCrop ? "С ръчно изрязано изображение" : "С автоматично изображение"}
+          </span>
+        )}
+        {imageInfo(q).missing && <span className="badge bg-accent-amber/20 text-[#a06a13]">Липсва изображение</span>}
         <span className="ml-auto font-mono text-xs text-muted-soft">авт. запис ✓</span>
       </div>
+      <p className="-mt-2 text-xs text-muted">{statusReason(q)}</p>
       <div className="grid grid-cols-3 gap-2">
         <button
           className={cx("chip justify-center", q.verified && "chip-active")}

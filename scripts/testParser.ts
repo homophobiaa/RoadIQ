@@ -137,6 +137,10 @@ if (withOcr) {
     ];
     for (const r of regions) {
       const out = await ocrRegionPipeline(img, r.rect, recognize, { baseScale: r.scale });
+      if (dump) {
+        saveColorCrop(img, r.rect, `${f.replace(/\W+/g, "_")}_${r.name.replace(/\W+/g, "_")}_RAW.png`);
+        saveColorCrop(img, out.rect, `${f.replace(/\W+/g, "_")}_${r.name.replace(/\W+/g, "_")}_TIGHT.png`);
+      }
       const tries = out.attempts.map((a) => `${a.psm}/${a.confidence}`).join(" ");
       console.log(
         `  ${r.name.padEnd(12)} ok=${out.ok} comb=${out.confidence.combined.toFixed(2)} [${tries}]${out.reason ? ` (${out.reason})` : ""}  "${out.text.slice(0, 70)}"`,

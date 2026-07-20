@@ -478,6 +478,72 @@ export function detectLayout(img: RawImage): DetectedLayout {
   return { layout: "unknown", titleRect, situationRect: null, answers: [], icons: contentIcons, rejectedIcons: rejected, warnings };
 }
 
+/**
+ * Geometric answer-card left edge. Independent of any photo analysis: for each
+ * answer row it walks left from the icon following the contiguous answer-card
+ * fill (anything not page-white), stopping at the first sustained white gutter.
+ * The median across rows is the answer column's left edge.
+ *
+ * In layout A the cards reach nearly to the page margin (small left edge); in
+ * layout B they are strongly indented, leaving the left band for the image.
+ * This is the PRIMARY B-vs-A signal — robust even when the situation image is
+ * low-contrast/grey (which colour-based detection can miss).
+ */
+function detectAnswerColumnLeft(img: RawImage, rows: { top: number; bottom: number }[], iconLeftX: number): number {
+  const { width, data } = img;
+  const whiteGap = Math.round(width * 0.012);
+  const margin = Math.round(width * 0.005);
+  const lefts: number[] = [];
+
+  for (const r of rows) {
+    const yc = Math.round((r.top + r.bottom) / 2);
+    const bandH = Math.max(2, Math.round((r.bottom - r.top) * 0.12));
+    const colIsCard = (x: number): boolean => {
+      let nonWhite = 0;
+      let n = 0;
+      for (let y = yc - bandH; y <= yc + bandH; y++) {
+        if (y < 0 || y >= img.height) continue;
+        const i = px(img, x, y);
+        // Card fill / border / text are all below page-white (~250+).
+        if (lum(data, i) < 244) nonWhite++;
+        n++;
+      }
+      return n > 0 && nonWhite / n > 0.4;
+    };
+    let leftEdge = iconLeftX;
+    let gap = 0;
+    for (let x = iconLeftX; x >= margin; x--) {
+      if (colIsCard(x)) {
+        leftEdge = x;
+        gap = 0;
+      } else if (++gap > whiteGap) {
+        break;
+      }
+    }
+    lefts.push(leftEdge);
+  }
+  return median(lefts);
+}
+
+/** True when a rectangular region contains real visual content (not blank page). */
+function zoneHasContent(img: RawImage, x0: number, x1: number, y0: number, y1: number): boolean {
+  const { data } = img;
+  const xs = Math.max(1, Math.floor((x1 - x0) / 60));
+  const ys = Math.max(1, Math.floor((y1 - y0) / 60));
+  let nonBg = 0;
+  let n = 0;
+  for (let y = y0; y < y1; y += ys) {
+    for (let x = x0; x < x1; x += xs) {
+      const i = px(img, x, y);
+      const l = lum(data, i);
+      const sat = Math.max(data[i], data[i + 1], data[i + 2]) - Math.min(data[i], data[i + 1], data[i + 2]);
+      if (l < 235 || sat > 20) nonBg++;
+      n++;
+    }
+  }
+  return n > 0 && nonBg / n > 0.15;
+}
+
 function detectVertical(
   img: RawImage,
   icons: DetectedResultIcon[],
@@ -506,29 +572,35 @@ function detectVertical(
     return { top: Math.round(top), bottom: Math.round(bottom), icon: ic };
   });
 
-  // A vs B: photo block on the left of the answer column?
+  // --- A vs B decision, geometry-first. ---
   const bandTop = Math.round(rows[0].top);
   const bandBottom = Math.round(rows[rows.length - 1].bottom);
-  const { left: imgLeft, right: imgRight } = detectLeftImage(
-    img,
-    bandTop,
-    bandBottom,
-    Math.round(iconLeft - width * 0.02),
-  );
+  // Answer-card left edge drives the classification (robust to grey images).
+  const cardLeft = detectAnswerColumnLeft(img, rows, Math.round(iconLeft - width * 0.02));
 
   let layout: QuestionLayout = "vertical-text";
   let situationRect: Rect | null = null;
   let answersLeft = Math.round(width * 0.008);
-  if (imgRight > 0) {
+
+  if (cardLeft > width * 0.18) {
+    // Answers are strongly indented → image-left/text-right. Answer text starts
+    // at the true card edge, so the first word is never clipped or contaminated
+    // by image pixels.
     layout = "image-left-text-right";
-    const rowsRange = refineImageRows(img, imgLeft, imgRight, bandTop, bandBottom);
-    situationRect = {
-      x: imgLeft,
-      y: rowsRange.top,
-      w: imgRight - imgLeft,
-      h: rowsRange.bottom - rowsRange.top,
-    };
-    answersLeft = Math.round(imgRight + width * 0.015);
+    answersLeft = cardLeft;
+    const zoneRight = Math.round(cardLeft - width * 0.01);
+    const zoneLeft = Math.round(width * 0.005);
+    // Prefer the tight colour-based crop; fall back to the full geometric zone.
+    const colour = detectLeftImage(img, bandTop, bandBottom, zoneRight);
+    if (colour.right > 0) {
+      const rr = refineImageRows(img, colour.left, colour.right, bandTop, bandBottom);
+      situationRect = { x: colour.left, y: rr.top, w: colour.right - colour.left, h: rr.bottom - rr.top };
+    } else if (zoneHasContent(img, zoneLeft, zoneRight, bandTop, bandBottom)) {
+      const rr = refineImageRows(img, zoneLeft, zoneRight, bandTop, bandBottom);
+      situationRect = { x: zoneLeft, y: rr.top, w: zoneRight - zoneLeft, h: rr.bottom - rr.top };
+    } else {
+      warnings.push("Очаква се изображение, но не е открито.");
+    }
   }
 
   const textPad = Math.round(iconH * 0.15);
