@@ -7,6 +7,7 @@ import { parseScreenshot } from "./parseScreenshot";
 import { terminateOcr } from "./ocr";
 
 export { loadScreenshotSources } from "./sources";
+export { parseScreenshot } from "./parseScreenshot";
 
 export async function parseAllScreenshots(
   sources: ScreenshotSource[],

@@ -22,7 +22,7 @@ import type {
   ScreenshotSource,
   TestQuestion,
 } from "./types";
-import { loadScreenshotSources, parseAllScreenshots } from "./parser";
+import { loadScreenshotSources, parseAllScreenshots, parseScreenshot } from "./parser";
 import { buildTest, gradeTest, isGradable, type GradeSummary } from "./lib/testEngine";
 import {
   applyAll,
@@ -82,6 +82,9 @@ interface Store {
   exportJSON: () => string;
   importJSON: (json: string) => void;
   clearAllCorrections: () => void;
+  /** Re-run the full parse pipeline for a single screenshot ("Повтори разпознаването"). */
+  reparseOne: (file: string) => Promise<void>;
+  reparsing: string | null;
 
   // ---- Shared study-category preference (localStorage) ----
   studyCategory: string;
@@ -271,6 +274,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const importJSON = useCallback((json: string) => {
     setCorrections(importCorrections(json));
   }, []);
+  const [reparsing, setReparsing] = useState<string | null>(null);
+  const reparseOne = useCallback(
+    async (file: string) => {
+      const source = sources.find((s) => s.fileName === file);
+      if (!source || reparsing) return;
+      setReparsing(file);
+      try {
+        const fresh = await parseScreenshot(source);
+        setRawQuestions((prev) => {
+          const next = prev.map((q) => (q.fileName === file ? fresh : q));
+          try {
+            localStorage.setItem(cacheKey(sources), JSON.stringify(next));
+          } catch {
+            /* quota — best effort */
+          }
+          return next;
+        });
+      } finally {
+        setReparsing(null);
+      }
+    },
+    [sources, reparsing],
+  );
+
   const clearAllCorrections = useCallback(() => {
     clearCorrections();
     setCorrections({});
@@ -338,6 +365,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       exportJSON,
       importJSON,
       clearAllCorrections,
+      reparseOne,
+      reparsing,
       studyCategory,
       setStudyCategory,
       includeUnverified,
@@ -370,6 +399,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       exportJSON,
       importJSON,
       clearAllCorrections,
+      reparseOne,
+      reparsing,
       studyCategory,
       setStudyCategory,
       includeUnverified,

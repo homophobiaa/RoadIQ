@@ -313,23 +313,55 @@ function CropsPanel({ q }: { q: ParsedQuestion }) {
           <span className="caption-up mb-1.5 block">OCR резултати</span>
           <div className="space-y-2">
             {q.ocrRegions.map((r, i) => (
-              <div
-                key={i}
-                className={cx(
-                  "rounded-md border p-2.5 text-sm",
-                  r.ok ? "border-hairline bg-canvas" : "border-error/40 bg-error/5",
-                )}
-              >
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="font-medium text-ink">{r.name}</span>
-                  <span className={cx("font-mono text-xs", r.confidence >= 80 ? "text-success" : r.confidence >= 60 ? "text-[#a06a13]" : "text-error")}>
-                    conf {r.confidence}%{!r.ok && r.reason ? ` · ${r.reason}` : ""}
-                  </span>
-                </div>
-                <p className="text-body">{r.text || "—"}</p>
-              </div>
+              <OcrRegionCard key={i} q={q} r={r} />
             ))}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One OCR region: result, confidence, exact coordinates, and every attempt —
+ *  alternative results are clickable and applied as a manual correction. */
+function OcrRegionCard({ q, r }: { q: ParsedQuestion; r: NonNullable<ParsedQuestion["ocrRegions"]>[number] }) {
+  const { editTitle, editAnswerText } = useStore();
+  const apply = (text: string) => {
+    if (r.answerId) editAnswerText(q.fileName, r.answerId, text);
+    else editTitle(q.fileName, text);
+  };
+  return (
+    <div
+      className={cx(
+        "rounded-md border p-2.5 text-sm",
+        r.ok ? "border-hairline bg-canvas" : "border-error/40 bg-error/5",
+      )}
+    >
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="font-medium text-ink">{r.name}</span>
+        <span className={cx("font-mono text-xs", r.confidence >= 80 ? "text-success" : r.confidence >= 60 ? "text-[#a06a13]" : "text-error")}>
+          conf {r.confidence}%{!r.ok && r.reason ? ` · ${r.reason}` : ""}
+        </span>
+      </div>
+      <p className="text-body">{r.text || "—"}</p>
+      {r.rect && (
+        <p className="mt-1 font-mono text-[10px] text-muted-soft">
+          crop x={r.rect.x} y={r.rect.y} w={r.rect.w} h={r.rect.h} (източник {q.debugFrame?.w}×{q.debugFrame?.h})
+        </p>
+      )}
+      {r.attempts && r.attempts.length > 1 && (
+        <div className="mt-1.5 space-y-1">
+          {r.attempts.map((a, j) => (
+            <button
+              key={j}
+              onClick={() => a.text && apply(a.text)}
+              title="Приложи този вариант като корекция"
+              className="block w-full rounded border border-hairline-soft bg-surface-soft px-2 py-1 text-left text-xs text-body hover:bg-surface-strong"
+            >
+              <span className="font-mono text-muted-soft">[{a.variant} psm{a.psm} · {a.confidence}%]</span>{" "}
+              {a.text || "—"}
+            </button>
+          ))}
         </div>
       )}
     </div>
@@ -366,6 +398,8 @@ function Editor({ q }: { q: ParsedQuestion }) {
     setExcluded,
     setSituationImage,
     resetQuestion,
+    reparseOne,
+    reparsing,
   } = useStore();
   const file = q.fileName;
 
@@ -375,6 +409,7 @@ function Editor({ q }: { q: ParsedQuestion }) {
       <div className="flex flex-wrap items-center gap-2">
         <StatusBadge status={statusOf(q)} />
         <ConfidenceBadge value={q.parseConfidence} />
+        {!q.usable && <span className="badge bg-error/15 text-error">за преглед</span>}
         <span className="ml-auto font-mono text-xs text-muted-soft">авт. запис ✓</span>
       </div>
       <div className="grid grid-cols-3 gap-2">
@@ -397,6 +432,20 @@ function Editor({ q }: { q: ParsedQuestion }) {
           Нулирай
         </button>
       </div>
+      <button
+        className="chip w-full justify-center"
+        disabled={reparsing !== null}
+        onClick={() => reparseOne(file)}
+      >
+        {reparsing === file ? "Разпознаване…" : "Повтори разпознаването"}
+      </button>
+
+      {q.needsImageCrop && !q.situationImageUrl && (
+        <p className="rounded-md bg-accent-amber/15 px-3 py-2 text-sm text-[#8a5a10]">
+          Този въпрос вероятно има ситуационна снимка, но тя не беше открита автоматично —
+          използвай „Изрежи ситуация“ в прегледа вляво.
+        </p>
+      )}
 
       {/* Title */}
       <div>

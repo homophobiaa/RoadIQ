@@ -13,17 +13,10 @@ import type {
   ParsedQuestion,
   ScreenshotSource,
 } from "../types";
-import {
-  detectLayout,
-  tightenTextRect,
-  validateDetection,
-  type DetectedLayout,
-  type Rect,
-} from "./detect";
-import { binarizeForOcr, cropGray, normalizeOcrText, scoreOcrText } from "./preprocess";
+import { detectLayout, validateDetection, type DetectedLayout, type Rect } from "./detect";
+import { ocrRegionPipeline, type RecognizeFn } from "./ocrPipeline";
 import { loadImage, cropToJpeg, grayToDataUrl, type LoadedImage } from "./imageUtils";
-import { runOcrOnRegion, PSM } from "./ocr";
-import { normalizeBulgarianText } from "./text";
+import { runOcrOnRegion, type Psm } from "./ocr";
 
 let uid = 0;
 const nextId = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${uid++}`;
@@ -37,49 +30,40 @@ const box = (label: string, r: Rect, color: string): DebugBox => ({
   color,
 });
 
+// The shared multi-pass pipeline (ocrPipeline.ts) does variants/PSM/scoring;
+// the browser only supplies the actual Tesseract call.
+const recognize: RecognizeFn = async (img, psm) => runOcrOnRegion(grayToDataUrl(img), psm as Psm);
+
 interface RegionOcr {
   text: string;
   info: OcrRegionInfo;
 }
 
-/**
- * OCR one text region: tighten to ink bbox → grayscale+Otsu (polarity-safe) →
- * Tesseract. When the binarized variant scores poorly, retry with the plain
- * grayscale variant and keep the better result — never silently accept junk.
- */
 async function ocrTextRegion(
   src: LoadedImage,
   name: string,
   rect: Rect,
   scale: number,
+  answerId?: string,
 ): Promise<RegionOcr> {
-  const tight = tightenTextRect(src.raw, rect);
-  const gray = cropGray(src.raw, tight, scale);
-
-  const run = async (img: typeof gray) => {
-    const res = await runOcrOnRegion(grayToDataUrl(img), PSM.BLOCK);
-    const text = normalizeBulgarianText(normalizeOcrText(res.text));
-    const quality = scoreOcrText(text);
-    return { text, confidence: res.confidence, quality };
-  };
-
-  let best = await run(binarizeForOcr(gray));
-  if (!best.quality.ok || best.confidence < 65) {
-    const alt = await run(gray);
-    const altScore = (alt.quality.ok ? 1 : 0) * 100 + alt.confidence;
-    const bestScore = (best.quality.ok ? 1 : 0) * 100 + best.confidence;
-    if (altScore > bestScore) best = alt;
-  }
-
-  const ok = best.quality.ok;
+  const out = await ocrRegionPipeline(src.raw, rect, recognize, { baseScale: scale });
   return {
-    text: ok ? best.text : "",
+    text: out.text,
     info: {
       name,
-      text: best.text,
-      confidence: Math.round(best.confidence),
-      ok,
-      reason: best.quality.reason,
+      answerId,
+      text: out.attempts.length ? out.attempts.reduce((a, b) => (b.score > a.score ? b : a)).text : "",
+      confidence: Math.round(out.confidence.ocr * 100),
+      ok: out.ok,
+      reason: out.reason,
+      attempts: out.attempts.map((a) => ({
+        variant: a.variant,
+        psm: a.psm,
+        text: a.text,
+        confidence: a.confidence,
+      })),
+      rect: out.rect,
+      combined: out.confidence.combined,
     },
   };
 }
@@ -160,26 +144,29 @@ export async function parseScreenshot(source: ScreenshotSource): Promise<ParsedQ
     }
 
     if (a.textRect) {
-      const r = await ocrTextRegion(src, label, a.textRect, 2);
+      const id = nextId("a");
+      const r = await ocrTextRegion(src, label, a.textRect, 2, id);
       ocrRegions.push(r.info);
       if (!r.info.ok) {
         ocrFailures++;
         warnings.push(`${label}: текстът не беше разчетен (${r.info.reason ?? "ниско качество"}).`);
       }
-      answers.push({ id: nextId("a"), type: "text", text: r.text, correct: a.correct });
+      answers.push({ id, type: "text", text: r.text, correct: a.correct });
     }
   }
 
   const correctCount = answers.filter((a) => a.correct).length;
-  const usable = validation.usable && ocrFailures < answers.length;
 
+  // Review-gating: correctness detection alone is not enough. Any empty text
+  // answer or unreadable title sends the question to review instead of tests.
+  const usable = validation.usable && ocrFailures === 0 && (titleOk || det.layout === "horizontal-image-answers");
+
+  const lowConf = ocrRegions.some((r) => r.ok && r.confidence < 60);
   const parseConfidence: ParsedQuestion["parseConfidence"] = !usable
     ? "low"
-    : titleOk && ocrFailures === 0
+    : titleOk && !lowConf
       ? "high"
-      : ocrFailures <= 1
-        ? "medium"
-        : "low";
+      : "medium";
 
   return {
     id: nextId("q"),
@@ -191,6 +178,9 @@ export async function parseScreenshot(source: ScreenshotSource): Promise<ParsedQ
     situationImageUrl,
     layout: det.layout,
     usable,
+    // Layout implies a situation image but detection was uncertain → the Debug
+    // Studio prompts for a manual crop; the full screenshot is never used.
+    needsImageCrop: det.layout === "image-left-text-right" && !det.situationRect,
     parseConfidence,
     parseWarnings: warnings,
     ocrRegions,

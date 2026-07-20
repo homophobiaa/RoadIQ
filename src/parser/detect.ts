@@ -560,26 +560,54 @@ function detectHorizontalCards(
   warnings: string[],
 ): DetectedLayout {
   const { width, height } = img;
-  const contentTop = titleRect.h + Math.round(height * 0.01);
+  const iconW = median(icons.map((ic) => ic.width));
   const iconY = median(icons.map((ic) => ic.cy));
-  // Icons sit at the vertical centre of the cards → mirror around the icon line.
-  const cardBottom = Math.min(Math.round(height * 0.97), Math.round(2 * iconY - contentTop));
 
+  // Card geometry, measured against the real image-answer screenshot:
+  // each icon sits at the RIGHT EDGE of its card, vertically centred. So:
+  //   cardRight_i ≈ icon_i.cx + iconW           (icon slightly inside the edge)
+  //   cardW      ≈ (gap between icon centres) − iconW
+  //   cardLeft_i = cardRight_i − cardW
+  // Using the midpoint between icon centres as the left edge (the old code)
+  // lands in the card CENTRE and crops the right half — never do that.
   const xs = icons.map((ic) => ic.cx);
-  const answers: DetectedAnswerRegion[] = icons.map((ic, i) => {
-    const left = i === 0 ? Math.round(width * 0.005) : Math.round((xs[i - 1] + xs[i]) / 2 + ic.width * 0.6);
-    const right = Math.round(ic.x + ic.width * 1.1);
-    const rect: Rect = { x: left, y: contentTop, w: right - left, h: cardBottom - contentTop };
-    // Image content: card interior minus the icon strip on the right.
-    const pad = Math.round(ic.width * 0.35);
+  const gaps: number[] = [];
+  for (let i = 1; i < xs.length; i++) gaps.push(xs[i] - xs[i - 1]);
+  const cardW = Math.round((gaps.length ? median(gaps) : width / Math.max(2, icons.length)) - iconW);
+
+  // Icons are at the vertical centre of near-square cards (h ≈ 0.92·w measured).
+  const cardH = Math.round(cardW * 0.92);
+  const cardTop = Math.max(titleRect.h, Math.round(iconY - cardH / 2));
+  const cardBottom = Math.min(Math.round(height * 0.96), Math.round(iconY + cardH / 2));
+
+  const answers: DetectedAnswerRegion[] = icons.map((ic) => {
+    const right = Math.round(ic.cx + iconW);
+    const left = Math.max(0, right - cardW);
+    const rect: Rect = { x: left, y: cardTop, w: right - left, h: cardBottom - cardTop };
+    // Image content: full card interior, excluding only the icon strip on the
+    // right and a small safe inset — left/right otherwise preserved equally.
+    const inset = Math.round(iconW * 0.25);
     const imageRect: Rect = {
-      x: left + pad,
-      y: contentTop + pad,
-      w: Math.round(ic.x - ic.width * 0.3) - left - pad * 2,
-      h: cardBottom - contentTop - pad * 2,
+      x: left + inset,
+      y: cardTop + inset,
+      w: Math.round(ic.x - iconW * 0.2) - (left + inset),
+      h: cardBottom - cardTop - inset * 2,
     };
+    if (imageRect.w < cardW * 0.5) {
+      warnings.push("Изрязаната снимка-отговор е подозрително тясна спрямо картата.");
+    }
     return { rect, imageRect, icon: ic, correct: ic.correct };
   });
+
+  // Neighbouring crops must not overlap.
+  for (let i = 1; i < answers.length; i++) {
+    const prev = answers[i - 1].imageRect!;
+    const cur = answers[i].imageRect!;
+    if (prev.x + prev.w > cur.x) {
+      warnings.push("Съседни снимки-отговори се застъпват — нужна е ръчна проверка.");
+      break;
+    }
+  }
 
   return {
     layout: "horizontal-image-answers",

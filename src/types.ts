@@ -22,10 +22,18 @@ export type ParsedAnswer =
 /** Per-region OCR diagnostics surfaced in the Debug Studio. */
 export interface OcrRegionInfo {
   name: string;
+  /** Answer id this region belongs to (absent for the title). */
+  answerId?: string;
   text: string;
   confidence: number;
   ok: boolean;
   reason?: string;
+  /** All OCR attempts (variant + PSM + text + confidence) for diagnostics. */
+  attempts?: { variant: string; psm: string; text: string; confidence: number }[];
+  /** Exact source-pixel rect that was OCR'd. */
+  rect?: { x: number; y: number; w: number; h: number };
+  /** Composite region confidence (detection / crop quality / OCR). */
+  combined?: number;
 }
 
 export interface ParsedQuestion {
@@ -61,6 +69,8 @@ export interface ParsedQuestion {
   excluded?: boolean;
   /** Situation image came from a manual crop / full-screenshot choice. */
   manualCrop?: boolean;
+  /** Layout suggests a situation image but automatic detection was uncertain. */
+  needsImageCrop?: boolean;
 }
 
 export interface IconDot {

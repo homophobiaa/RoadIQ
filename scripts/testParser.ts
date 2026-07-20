@@ -14,6 +14,27 @@ const dir = join(import.meta.dirname, "..", "public", "screenshots");
 const verbose = process.argv.includes("--verbose");
 const withOcr = process.argv.includes("--ocr");
 const ocrLimit = withOcr ? parseInt(process.argv[process.argv.indexOf("--ocr") + 1] || "4", 10) : 0;
+// --dump: save situation-image and image-answer crops for visual inspection.
+const dump = process.argv.includes("--dump");
+
+function saveColorCrop(img: RawImage, rect: Rect, name: string) {
+  const x0 = Math.max(0, Math.round(rect.x));
+  const y0 = Math.max(0, Math.round(rect.y));
+  const w = Math.max(1, Math.min(img.width - x0, Math.round(rect.w)));
+  const h = Math.max(1, Math.min(img.height - y0, Math.round(rect.h)));
+  const out = new PNG({ width: w, height: h });
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const si = ((y0 + y) * img.width + (x0 + x)) * 4;
+      const di = (y * w + x) * 4;
+      out.data[di] = img.data[si];
+      out.data[di + 1] = img.data[si + 1];
+      out.data[di + 2] = img.data[si + 2];
+      out.data[di + 3] = 255;
+    }
+  }
+  writeFileSync(join("scripts", "out", name), PNG.sync.write(out));
+}
 
 function encodeCrop(img: RawImage, rect: Rect, scale: number): Buffer {
   const bin = binarizeForOcr(cropGray(img, rect, scale));
@@ -22,7 +43,11 @@ function encodeCrop(img: RawImage, rect: Rect, scale: number): Buffer {
   return PNG.sync.write(out);
 }
 
-const files = readdirSync(dir).filter((f) => /\.png$/i.test(f));
+const filterArg = process.argv.indexOf("--files");
+const filter = filterArg >= 0 ? process.argv[filterArg + 1].split(",") : null;
+const files = readdirSync(dir)
+  .filter((f) => /\.png$/i.test(f))
+  .filter((f) => !filter || filter.some((s) => f.includes(s)));
 let pass = 0;
 
 // Ground truth from manual visual inspection (answers count / layout).
@@ -62,14 +87,39 @@ for (const f of files) {
   if (exp && (exp.layout !== det.layout || exp.answers !== det.answers.length)) {
     console.log(`   MISMATCH: expected ${exp.layout}/${exp.answers}`);
   }
+  if (det.layout === "image-left-text-right" && !det.situationRect) {
+    console.log("        ⚠ B-layout but NO situation rect");
+  }
+  if (dump) {
+    const base = f.replace(/\W+/g, "_");
+    if (det.situationRect) saveColorCrop(img, det.situationRect, `${base}__situation.png`);
+    det.answers.forEach((a, i) => {
+      if (a.imageRect) saveColorCrop(img, a.imageRect, `${base}__card${i + 1}.png`);
+      if (a.rect && det.layout === "horizontal-image-answers")
+        saveColorCrop(img, a.rect, `${base}__cardfull${i + 1}.png`);
+    });
+  }
 }
 console.log(`\nUsable without manual review: ${pass}/${files.length}`);
 
-// --- Optional OCR spot-check on the first N screenshots (real Tesseract). ---
+// --- Optional OCR spot-check on the first N screenshots (real Tesseract),
+//     running the exact shared browser pipeline (ocrPipeline.ts). ---
 if (withOcr) {
+  const Tesseract = (await import("tesseract.js")).default;
   const { createWorker } = await import("tesseract.js");
+  const { ocrRegionPipeline } = await import("../src/parser/ocrPipeline");
+  const { grayToRgba: toRgba } = await import("../src/parser/preprocess");
   const worker = await createWorker("bul+eng");
-  console.log("\nOCR spot-check:");
+
+  const recognize = async (g: { data: Uint8ClampedArray; width: number; height: number }, psm: string) => {
+    await worker.setParameters({ tessedit_pageseg_mode: psm as Tesseract.PSM });
+    const out = new PNG({ width: g.width, height: g.height });
+    out.data = Buffer.from(toRgba(g));
+    const res = await worker.recognize(PNG.sync.write(out));
+    return { text: res.data.text ?? "", confidence: res.data.confidence ?? 0 };
+  };
+
+  console.log("\nOCR spot-check (shared pipeline):");
   for (const f of files.slice(0, ocrLimit)) {
     const png = PNG.sync.read(readFileSync(join(dir, f)));
     const img: RawImage = {
@@ -85,15 +135,11 @@ if (withOcr) {
         .filter((a) => a.textRect)
         .map((a, i) => ({ name: `answer${i + 1} ${a.correct ? "✓" : "✗"}`, rect: a.textRect!, scale: 2 })),
     ];
-    for (const r0 of regions) {
-      const r = { ...r0, rect: tightenTextRect(img, r0.rect) };
-      const buf = encodeCrop(img, r.rect, r.scale);
-      writeFileSync(join("scripts", "out", `${f.replace(/\W+/g, "_")}_${r.name.replace(/\W+/g, "_")}.png`), buf);
-      const res = await worker.recognize(buf);
-      const text = normalizeOcrText(res.data.text);
-      const q = scoreOcrText(text);
+    for (const r of regions) {
+      const out = await ocrRegionPipeline(img, r.rect, recognize, { baseScale: r.scale });
+      const tries = out.attempts.map((a) => `${a.psm}/${a.confidence}`).join(" ");
       console.log(
-        `  ${r.name.padEnd(12)} conf=${Math.round(res.data.confidence)} ok=${q.ok}${q.reason ? ` (${q.reason})` : ""}  "${text.slice(0, 80)}"`,
+        `  ${r.name.padEnd(12)} ok=${out.ok} comb=${out.confidence.combined.toFixed(2)} [${tries}]${out.reason ? ` (${out.reason})` : ""}  "${out.text.slice(0, 70)}"`,
       );
     }
   }
